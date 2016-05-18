@@ -246,7 +246,7 @@ class Builder {
 				$log['files'][] = 'static/' . str_replace($this->folder . DS, '', $filedest);
 			}
 		}
-		$this->itemCallback && call($this->itemCallback, [$log]);
+		$this->notifyCallback($log);
 		return $this->summary[] = $log;
 	}
 
@@ -298,7 +298,7 @@ class Builder {
 
 			$_SERVER['REQUEST_METHOD'] = $requestMethod;
 		}
-		$this->itemCallback && call($this->itemCallback, [$log]);
+		$this->notifyCallback($log);
 		return $this->summary[] = $log;
 	}
 
@@ -369,7 +369,7 @@ class Builder {
 			$log['status'] = copy($source, $target) ? 'done' : 'failed';
 		}
 
-		$this->itemCallback && call($this->itemCallback, [$log]);
+		$this->notifyCallback($log);
 		return $this->summary[] = $log;
 	}
 
@@ -398,6 +398,10 @@ class Builder {
 			return $text;
 		}
 		return str_replace($domain, $this->domainReplacement, $text);
+	}
+
+	protected function notifyCallback($item) {
+		$this->itemCallback && call($this->itemCallback, [$item]);
 	}
 
 	/**
