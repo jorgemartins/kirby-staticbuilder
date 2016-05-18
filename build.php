@@ -1,5 +1,12 @@
 #!/usr/bin/env php
 <?php
+/*
+ * CLI version of plugin
+ *
+ * Example usage:
+ * php build.php ../kirby ../site.php # build everything
+ * php build.php ../kirby ../site.php home error # build 'home' and 'error' pages
+ */
 
 namespace Kirby\Plugin\StaticBuilder;
 
@@ -96,7 +103,7 @@ $builder->itemCallback = function($item) use (&$results, &$stats, &$opts) {
 $method = $opts['dry-run'] ? 'dryrun' : 'write';
 foreach ($targets as $target) {
 	$builder->$method($target);
-} 
+}
 
 if (!$opts['quiet']) {
 	$line = [];
