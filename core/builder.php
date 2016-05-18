@@ -44,6 +44,9 @@ class Builder {
 	// Storing results
 	public $summary = [];
 
+	// Optional callback to execute after an item has been built
+	public $itemCallback = null;
+
 	/**
 	 * Builder constructor.
 	 * Resolve config and stuff.
@@ -243,6 +246,7 @@ class Builder {
 				$log['files'][] = 'static/' . str_replace($this->folder . DS, '', $filedest);
 			}
 		}
+		$this->itemCallback && call($this->itemCallback, [$log]);
 		return $this->summary[] = $log;
 	}
 
@@ -294,6 +298,7 @@ class Builder {
 
 			$_SERVER['REQUEST_METHOD'] = $requestMethod;
 		}
+		$this->itemCallback && call($this->itemCallback, [$log]);
 		return $this->summary[] = $log;
 	}
 
@@ -364,6 +369,7 @@ class Builder {
 			$log['status'] = copy($source, $target) ? 'done' : 'failed';
 		}
 
+		$this->itemCallback && call($this->itemCallback, [$log]);
 		return $this->summary[] = $log;
 	}
 
