@@ -275,7 +275,7 @@ class Builder {
 			$this->lastpage = $log['source'];
 
 			// Temporarily override request method to ensure correct route is found
-			$requestMethod = $_SERVER['REQUEST_METHOD'];
+			$requestMethod = isset($_SERVER['REQUEST_METHOD']) ? $_SERVER['REQUEST_METHOD'] : null;
 			$_SERVER['REQUEST_METHOD'] = 'GET';
 			$this->kirby->site()->visit($uri);
 			$route = $this->kirby->router->run($uri);
