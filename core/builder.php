@@ -81,6 +81,7 @@ class Builder {
 		}
 
 		$this->additionalRoutes = c::get('plugin.staticbuilder.additionalRoutes', []);
+		$this->domainReplacement = c::get('plugin.staticbuilder.domainReplacement', null);
 
 		// Normalize assets config
 		$assetConf = c::get('plugin.staticbuilder.assets', static::$defaultAssets);
@@ -228,7 +229,7 @@ class Builder {
 			*/
 
 			// Render page
-			$text = $this->kirby->render($page, [], false);
+			$text = $this->replaceDomains($this->kirby->render($page, [], false));
 
 			// Write page content
 			f::write($target, $text);
@@ -282,7 +283,7 @@ class Builder {
 				// Grab route output using output buffering
 				ob_start();
 				$response = call($route->action(), $route->arguments());
-				$text = ob_get_contents();
+				$text = $this->replaceDomains(ob_get_contents());
 				ob_end_clean();
 
 				// Write page content
@@ -383,6 +384,13 @@ class Builder {
 			if ($content instanceof Page) $pages->add($content);
 			return $pages;
 		}
+	}
+
+	protected function replaceDomains($text) {
+		if (is_null($this->domainReplacement)) {
+			return $text;
+		}
+		return str_replace($this->kirby->urls()->index(), $this->domainReplacement, $text);
 	}
 
 	/**
