@@ -80,6 +80,8 @@ class Builder {
 			$this->filter = $filter;
 		}
 
+		$this->additionalRoutes = c::get('plugin.staticbuilder.additionalRoutes', []);
+
 		// Normalize assets config
 		$assetConf = c::get('plugin.staticbuilder.assets', static::$defaultAssets);
 		$assets = [];
@@ -227,11 +229,11 @@ class Builder {
 
 			// Render page
 			$text = $this->kirby->render($page, [], false);
-			$log['size'] = strlen($text);
 
 			// Write page content
 			f::write($target, $text);
 			$log['status'] = 'generated';
+			$log['size'] = strlen($text);
 
 			// Copy page files in a folder
 			foreach ($page->files() as $file) {
@@ -239,6 +241,57 @@ class Builder {
 				$file->copy($filedest);
 				$log['files'][] = 'static/' . str_replace($this->folder . DS, '', $filedest);
 			}
+		}
+		return $this->summary[] = $log;
+	}
+
+	protected function buildRoute($uri, $write=false) {
+		if (!is_string($uri)) {
+			return false;
+		}
+		$log = [
+			'type'   => 'route',
+			'status' => '',
+			'reason' => '',
+			'source' => $uri,
+			'dest'   => 'static/',
+			'size'   => null,
+		];
+		$target = $this->normalizePath( $this->folder . DS . $uri . (substr($uri, -1) == '/' ? $this->suffix : ''));
+		$log['dest'] .= str_replace($this->folder . DS, '', $target);
+
+		if ($write == false) {
+			// Get status of output path
+			if (is_file($target)) {
+				$log['status'] = 'outdated';
+				$log['size'] = filesize($target);
+			}
+		} else {
+			$this->lastpage = $log['source'];
+
+			// Temporarily override request method to ensure correct route is found
+			$requestMethod = $_SERVER['REQUEST_METHOD'];
+			$_SERVER['REQUEST_METHOD'] = 'GET';
+			$this->kirby->site()->visit($uri);
+			$route = $this->kirby->router->run($uri);
+
+			if (is_null($route)) {
+				// Unmatched route
+				$log['status'] = 'missing';
+			} else {
+				// Grab route output using output buffering
+				ob_start();
+				$response = call($route->action(), $route->arguments());
+				$text = ob_get_contents();
+				ob_end_clean();
+
+				// Write page content
+				f::write($target, $text);
+				$log['status'] = 'generated';
+				$log['size'] = strlen($text);
+			}
+
+			$_SERVER['REQUEST_METHOD'] = $requestMethod;
 		}
 		return $this->summary[] = $log;
 	}
@@ -373,6 +426,9 @@ class Builder {
 			foreach ($this->assets as $from=>$to) {
 				$this->copyAsset($from, $to, true);
 			}
+			foreach ($this->additionalRoutes as $route) {
+				$this->buildRoute($route, true);
+			}
 		}
 		foreach($this->getPages($content) as $page) {
 			$this->buildPage($page, true);
@@ -395,6 +451,9 @@ class Builder {
 		if ($content instanceof Site) {
 			foreach ($this->assets as $from=>$to) {
 				$this->copyAsset($from, $to, false);
+			}
+			foreach ($this->additionalRoutes as $route) {
+				$this->buildRoute($route, false);
 			}
 		}
 		foreach($this->getPages($content) as $page) {
