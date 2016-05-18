@@ -393,10 +393,11 @@ class Builder {
 	}
 
 	protected function replaceDomains($text) {
-		if (is_null($this->domainReplacement)) {
+		$domain = $this->kirby->urls()->index();
+		if (is_null($this->domainReplacement) || $domain == '/') {
 			return $text;
 		}
-		return str_replace($this->kirby->urls()->index(), $this->domainReplacement, $text);
+		return str_replace($domain, $this->domainReplacement, $text);
 	}
 
 	/**
