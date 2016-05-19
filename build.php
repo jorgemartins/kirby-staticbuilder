@@ -100,9 +100,8 @@ $builder->itemCallback = function($item) use (&$results, &$stats, &$opts) {
 };
 
 // Build each target and combine summaries
-$method = $opts['dry-run'] ? 'dryrun' : 'write';
 foreach ($targets as $target) {
-	$builder->$method($target);
+	$builder->run($target, !$opts['dry-run']);
 }
 
 if (!$opts['quiet']) {
