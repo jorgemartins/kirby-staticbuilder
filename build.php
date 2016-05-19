@@ -11,6 +11,7 @@
 namespace Kirby\Plugin\StaticBuilder;
 
 use F;
+use Router;
 
 // Parse options (--option) and create an array with positional arguments
 $opts = [
@@ -61,7 +62,12 @@ $startTime = microtime(true);
 $ds = DIRECTORY_SEPARATOR;
 require("{$kirbyRoot}{$ds}bootstrap.php");
 require($sitePath);
-$kirby->launch();
+date_default_timezone_set($kirby->options['timezone']);
+$kirby->site();
+$kirby->extensions();
+$kirby->plugins();
+$kirby->models();
+$kirby->router = new Router($kirby->routes());
 
 $builder = new Builder();
 
