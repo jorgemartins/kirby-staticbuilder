@@ -16,8 +16,7 @@ function siteAction() {
 	$builder = new Builder();
 	$confirm = r::is('POST') and r::get('confirm');
 
-	if ($confirm) $builder->write($site);
-	else $builder->dryrun($site);
+	$builder->run($site, $confirm);
 
 	$data = [
 		'mode'    => 'site',
@@ -48,8 +47,7 @@ function pageAction($uri) {
 		$data['error'] = "Error: Cannot find page for \"$uri\"";
 	}
 	else {
-		if ($confirm) $builder->write($page);
-		else $builder->dryrun($page);
+		$builder->run($page, $confirm);
 		$data['summary'] = $builder->summary;
 	}
 	return $builder->htmlReport($data);

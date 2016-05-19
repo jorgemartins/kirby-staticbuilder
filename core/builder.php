@@ -425,58 +425,41 @@ class Builder {
 	/**
 	 * Build or rebuild static content
 	 * @param Page|Pages|Site $content Content to write to the static folder
+	 * @param boolean $write Build pages - set to false to dry-run
 	 * @return array
 	 */
-	public function write($content) {
+	public function run($content, $write=true) {
 		$this->summary = [];
 
-		// Kill PHP Error reporting when building pages, to "catch" PHP errors
-		// from the pages or their controllers (and plugins etc.). We're going
-		// to try to hande it ourselves
-		$level = error_reporting();
-		$catchErrors = c::get('plugin.staticbuilder.catcherrors', false);
-		if ($catchErrors) {
-			$this->shutdown = function () { $this->showFatalError(); };
-			register_shutdown_function($this->shutdown);
-			error_reporting(0);
+		if ($write) {
+			// Kill PHP Error reporting when building pages, to "catch" PHP errors
+			// from the pages or their controllers (and plugins etc.). We're going
+			// to try to hande it ourselves
+			$level = error_reporting();
+			$catchErrors = c::get('plugin.staticbuilder.catcherrors', false);
+			if ($catchErrors) {
+				$this->shutdown = function () { $this->showFatalError(); };
+				register_shutdown_function($this->shutdown);
+				error_reporting(0);
+			}
 		}
 
 		if ($content instanceof Site) {
 			foreach ($this->assets as $from=>$to) {
-				$this->copyAsset($from, $to, true);
+				$this->copyAsset($from, $to, $write);
 			}
 			foreach ($this->routes as $route) {
-				$this->buildRoute($route, true);
+				$this->buildRoute($route, $write);
 			}
 		}
 		foreach($this->getPages($content) as $page) {
-			$this->buildPage($page, true);
+			$this->buildPage($page, $write);
 		}
 
 		// Restore error reporting if building pages worked
-		if ($catchErrors) {
+		if ($write && $catchErrors) {
 			error_reporting($level);
 			$this->shutdown = function () {};
-		}
-	}
-
-	/**
-	 * Build or rebuild static content
-	 * @param Page|Pages|Site $content Content to write to the static folder
-	 * @return array
-	 */
-	public function dryrun($content) {
-		$this->summary = [];
-		if ($content instanceof Site) {
-			foreach ($this->assets as $from=>$to) {
-				$this->copyAsset($from, $to, false);
-			}
-			foreach ($this->routes as $route) {
-				$this->buildRoute($route, false);
-			}
-		}
-		foreach($this->getPages($content) as $page) {
-			$this->buildPage($page, false);
 		}
 	}
 
