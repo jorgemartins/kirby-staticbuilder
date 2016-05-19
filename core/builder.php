@@ -5,6 +5,7 @@ namespace Kirby\Plugin\StaticBuilder;
 use C;
 use Exception;
 use F;
+use URL;
 use Folder;
 use Page;
 use Pages;
@@ -30,12 +31,16 @@ class Builder {
 	// Defaults for 'plugin.staticbuilder.suffix'
 	static $defaultSuffix = '/index.html';
 
+	protected $urlPlaceholder = 'STATICBUILDER_KIRBY_INDEX';
+
 	// Resolved config
 	protected $index;
 	protected $folder;
 	protected $suffix;
+	protected $urlbase;
 	protected $filter;
 	protected $assets;
+	protected $routes;
 
 	// Callable for PHP Errors
 	public $shutdown;
@@ -84,7 +89,7 @@ class Builder {
 		}
 
 		$this->routes = c::get('plugin.staticbuilder.routes', []);
-		$this->domainReplacement = c::get('plugin.staticbuilder.domainReplacement', null);
+		$this->urlbase = c::get('plugin.staticbuilder.urlbase', false);
 
 		// Normalize assets config
 		$assetConf = c::get('plugin.staticbuilder.assets', static::$defaultAssets);
@@ -123,6 +128,22 @@ class Builder {
 			else $out[] = $fold;
 		}
 		return ($path[0] == DS ? DS : '') . join(DS, $out);
+	}
+
+	/**
+	 * Generate a relative path between two paths.
+	 * @param string $from
+	 * @param string $to
+	 * @return string
+	 */
+	protected function relativePath($from, $to) {
+		$fromAry = explode('/', $from);
+		$toAry = explode('/', $to);
+		while (count($fromAry) && count($toAry) && $fromAry[0] === $toAry[0]) {
+			array_shift($fromAry);
+			array_shift($toAry);
+		}
+		return str_repeat('../', count($fromAry)) . implode('/', $toAry);
 	}
 
 	/**
@@ -232,7 +253,7 @@ class Builder {
 			*/
 
 			// Render page
-			$text = $this->replaceDomains($this->kirby->render($page, [], false));
+			$text = $this->rewriteUrls($this->kirby->render($page, [], false), $page->url());
 
 			// Write page content
 			f::write($target, $text);
@@ -287,7 +308,7 @@ class Builder {
 				// Grab route output using output buffering
 				ob_start();
 				$response = call($route->action(), $route->arguments());
-				$text = $this->replaceDomains(ob_get_contents());
+				$text = $this->rewriteUrls(ob_get_contents(), $uri);
 				ob_end_clean();
 
 				// Write page content
@@ -392,12 +413,38 @@ class Builder {
 		}
 	}
 
-	protected function replaceDomains($text) {
-		$domain = $this->kirby->urls()->index();
-		if (is_null($this->domainReplacement) || $domain == '/') {
-			return $text;
-		}
-		return str_replace($domain, $this->domainReplacement, $text);
+	protected function rewriteUrls($text, $relativeTo = '') {
+		$quotedPlaceholder = preg_quote($this->urlPlaceholder, '~');
+		$relativeTo = preg_replace("~^$quotedPlaceholder/?~", '', $relativeTo);
+		return preg_replace_callback(
+			"~$quotedPlaceholder/?([^\"'{}\s]*)~",
+			function ($m) use($relativeTo) {
+				if ($this->urlbase === false) {
+					$path = $this->relativePath($relativeTo, $m[1]);
+					if ($path === '') $path = './';
+					return $path;
+				} else if ($this->urlbase == 'file://') {
+					$path = $this->relativePath($relativeTo, $m[1]);
+					// Strip first ../ when relative to root
+					if ($relativeTo === '' && strpos($path, '../') === 0) {
+						$path = substr($path, 3);
+					}
+					// Prepend with ./ to avoid clarify the URL being relative
+					if (substr($path, 0, 3) != '../') {
+						$path = "./$path";
+					}
+					// Append trailing /index.htm if extension is missing
+					$basename = basename($path);
+					if ($basename == '..' || $basename == '.' || strpos($basename, '.') === false) {
+						$path = rtrim($path, '/') . ($path == '/' ? '/index.html' : $this->suffix);
+					}
+					return $path;
+				} else {
+					return $this->urlbase . '/' . $m[1];
+				}
+			},
+			$text
+		);
 	}
 
 	protected function notifyCallback($item) {
@@ -431,6 +478,19 @@ class Builder {
 	public function run($content, $write=true) {
 		$this->summary = [];
 
+		// Temporarily override URL config
+		$originalUrlConfig = get_object_vars($this->kirby->urls());
+		$index = $this->kirby->urls()->index();
+		$escapedIndex = ($index == '/') ? '' : preg_quote($index, '~');
+		foreach ($originalUrlConfig as $key => $value) {
+			$this->kirby->urls()->$key = preg_replace(
+				"~^(https?://)?$escapedIndex~",
+				$this->urlPlaceholder,
+				$value
+			);
+		}
+		url::$home = $this->kirby->site->url = $this->kirby->urls()->index = $this->urlPlaceholder;
+
 		if ($write) {
 			// Kill PHP Error reporting when building pages, to "catch" PHP errors
 			// from the pages or their controllers (and plugins etc.). We're going
@@ -461,6 +521,13 @@ class Builder {
 			error_reporting($level);
 			$this->shutdown = function () {};
 		}
+
+		// Restore overridden URL config
+		unset($this->kirby->urls()->index);
+		foreach ($originalUrlConfig as $key => $value) {
+			$this->kirby->urls()->$key = $value;
+		}
+		$this->kirby->site->url = $this->kirby->urls()->index();
 	}
 
 	/**
