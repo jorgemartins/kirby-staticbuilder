@@ -83,7 +83,7 @@ class Builder {
 			$this->filter = $filter;
 		}
 
-		$this->additionalRoutes = c::get('plugin.staticbuilder.additionalRoutes', []);
+		$this->routes = c::get('plugin.staticbuilder.routes', []);
 		$this->domainReplacement = c::get('plugin.staticbuilder.domainReplacement', null);
 
 		// Normalize assets config
@@ -445,7 +445,7 @@ class Builder {
 			foreach ($this->assets as $from=>$to) {
 				$this->copyAsset($from, $to, true);
 			}
-			foreach ($this->additionalRoutes as $route) {
+			foreach ($this->routes as $route) {
 				$this->buildRoute($route, true);
 			}
 		}
@@ -471,7 +471,7 @@ class Builder {
 			foreach ($this->assets as $from=>$to) {
 				$this->copyAsset($from, $to, false);
 			}
-			foreach ($this->additionalRoutes as $route) {
+			foreach ($this->routes as $route) {
 				$this->buildRoute($route, false);
 			}
 		}
