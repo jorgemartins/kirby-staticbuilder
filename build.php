@@ -33,9 +33,6 @@ $args = array_filter(array_slice($argv, 1), function($arg) use (&$opts) {
 
 if ($opts['json']) $opts['quiet'] = true;
 
-list($kirbyRoot, $sitePath) = $args;
-$targets = array_slice($args, 2);
-
 // Show usage if not required arguments aren't provided
 if (count($args) < 2) {
 	echo <<<EOF
@@ -48,6 +45,9 @@ usage: {$argv[0]} [--dry-run] [--quiet] [--json] kirby-root site.php [pages...]
 EOF;
 	exit(1);
 }
+
+list($kirbyRoot, $sitePath) = $args;
+$targets = array_slice($args, 2);
 
 $log = function($msg) use ($opts) {
 	if (!$opts['quiet']) {
