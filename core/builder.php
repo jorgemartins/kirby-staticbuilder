@@ -419,24 +419,22 @@ class Builder {
 		return preg_replace_callback(
 			"~$quotedPlaceholder/?([^\"'{}\s]*)~",
 			function ($m) use($relativeTo) {
-				if ($this->urlbase === false) {
-					$path = $this->relativePath($relativeTo, $m[1]);
-					if ($path === '') $path = './';
-					return $path;
-				} else if ($this->urlbase == 'file://') {
+				if ($this->urlbase === false || $this->urlbase == 'file://') {
 					$path = $this->relativePath($relativeTo, $m[1]);
 					// Strip first ../ when relative to root
 					if ($relativeTo === '' && strpos($path, '../') === 0) {
 						$path = substr($path, 3);
 					}
-					// Prepend with ./ to avoid clarify the URL being relative
+					// Prepend with ./ to clarify the relativity
 					if (substr($path, 0, 3) != '../') {
 						$path = "./$path";
 					}
 					// Append trailing /index.htm if extension is missing
-					$basename = basename($path);
-					if ($basename == '..' || $basename == '.' || strpos($basename, '.') === false) {
-						$path = rtrim($path, '/') . ($path == '/' ? '/index.html' : $this->suffix);
+					if ($this->urlbase == 'file://') {
+						$basename = basename($path);
+						if ($basename == '..' || $basename == '.' || strpos($basename, '.') === false) {
+							$path = rtrim($path, '/') . ($path == '/' ? '/index.html' : $this->suffix);
+						}
 					}
 					return $path;
 				} else {
