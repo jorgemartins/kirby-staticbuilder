@@ -502,16 +502,17 @@ class Builder {
 			}
 		}
 
+		foreach($this->getPages($content) as $page) {
+			$this->buildPage($page, $write);
+		}
+
 		if ($content instanceof Site) {
-			foreach ($this->assets as $from=>$to) {
-				$this->copyAsset($from, $to, $write);
-			}
 			foreach ($this->routes as $route) {
 				$this->buildRoute($route, $write);
 			}
-		}
-		foreach($this->getPages($content) as $page) {
-			$this->buildPage($page, $write);
+			foreach ($this->assets as $from=>$to) {
+				$this->copyAsset($from, $to, $write);
+			}
 		}
 
 		// Restore error reporting if building pages worked
