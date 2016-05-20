@@ -42,13 +42,14 @@ $command = array_shift($args);
 if ($opts['json']) $opts['quiet'] = true;
 
 // Show usage if not required arguments aren't provided
-if (is_null($command) || $opts['help']) {
+if (is_null($command) || $command == 'help' || $opts['help']) {
 	echo <<<EOF
 usage: {$argv[0]} [options...] <command> [pages...]
 
 Available commands:
 	build             Build entire site (or specific pages)
 	list              List items that would be built but don't write anything
+	help              Display this help text
 
 Options:
 	[pages...]        Build the specified pages instead of the entire site
@@ -56,7 +57,6 @@ Options:
 	--site=site.php   Path to kirby site.php config, specify 'false' to disable
 	--json            Output data and outcome for each item as JSON
 	--quiet           Suppress output
-	--help            Display this help text
 
 EOF;
 	exit(1);
