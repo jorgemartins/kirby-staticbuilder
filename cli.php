@@ -12,6 +12,7 @@ namespace Kirby\Plugin\StaticBuilder;
 
 use F;
 use Router;
+use Pages;
 
 $ds = DIRECTORY_SEPARATOR;
 
@@ -101,13 +102,6 @@ $kirby->router = new Router($kirby->routes());
 require_once('core/builder.php');
 $builder = new Builder();
 
-// Determine targets to build
-if (count($args) > 0) {
-	$targets = array_map('page', $args);
-} else {
-	$targets = [site()];
-}
-
 // Store results and track stats
 $results = [];
 if ($command == 'list') {
@@ -131,21 +125,21 @@ $builder->itemCallback = function($item) use (&$results, &$stats, &$opts) {
 	if (!$opts['quiet']) {
 		$files = isset($item['files']) ? (', ' . count($item['files']) . ' files') : null;
 		$size = r(is_int($item['size']), '(' . f::niceSize($item['size']) . "$files)");
-		echo "[{$item['status']}] {$item['type']} - {$item['source']} $size\n";
+		$id = isset($item['uri']) ? $item['uri'] : $item['source'];
+		echo "[{$item['status']}] {$item['type']} - {$id} $size\n";
 	}
 };
 
 // Build each target and combine summaries
-foreach ($targets as $target) {
-	$builder->run($target, $command == 'build');
-}
+$targets = count($args) > 0 ? new Pages($args) : site();
+$builder->run($targets, $command == 'build');
 
 if (!$opts['quiet']) {
 	$line = [];
 	foreach ($stats as $state => $count) {
 		$line[] = "$state: $count";
 	}
-	$log("Results: " . join(', ', $line));
+	$log('Results: ' . join(', ', $line));
 }
 
 if ($opts['json']) {
