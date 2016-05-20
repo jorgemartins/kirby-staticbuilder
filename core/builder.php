@@ -12,7 +12,7 @@ use Pages;
 use Response;
 use Site;
 use Tpl;
-
+use Str;
 
 /**
  * Static HTML builder class for Kirby CMS
@@ -41,6 +41,11 @@ class Builder {
 	protected $filter;
 	protected $assets;
 	protected $routes;
+	protected $ignoredRoutes = [
+		'staticbuilder*',
+		'/',
+		'home',
+	];
 
 	// Callable for PHP Errors
 	public $shutdown;
@@ -88,8 +93,17 @@ class Builder {
 			$this->filter = $filter;
 		}
 
-		$this->routes = c::get('plugin.staticbuilder.routes', []);
 		$this->urlbase = c::get('plugin.staticbuilder.urlbase', false);
+		$this->routes = c::get('plugin.staticbuilder.routes', true);
+		if (!$this->routes) {
+			$this->routes = [];
+		} else {
+			$this->routes = array_merge($this->routes, array_map(
+				function($r) { return $r->pattern; },
+				$this->kirby->router->routes('GET')
+			));
+		}
+		$this->ignoredRoutes = array_merge($this->ignoredRoutes, c::get('plugin.staticbuilder.ignoredroutes', []));
 
 		// Normalize assets config
 		$assetConf = c::get('plugin.staticbuilder.assets', static::$defaultAssets);
@@ -144,6 +158,17 @@ class Builder {
 			array_shift($toAry);
 		}
 		return str_repeat('../', count($fromAry)) . implode('/', $toAry);
+	}
+
+	protected function shouldBuildRoute($uri) {
+		// Not handling routes with parameters
+		if (strpos($uri, '(') !== false) return false;
+		// Match against ignored routes
+		foreach ($this->ignoredRoutes as $ignored) {
+			if (str::endsWith($ignored, '*') && str::startsWith($uri, rtrim($ignored, '*'))) return false;
+			if ($uri === $ignored) return false;
+		}
+		return true;
 	}
 
 	/**
@@ -272,19 +297,23 @@ class Builder {
 	}
 
 	protected function buildRoute($uri, $write=false) {
-		if (!is_string($uri)) {
+		if (!is_string($uri) || !$this->shouldBuildRoute($uri)) {
 			return false;
 		}
+		// Append trailing /index.htm to destination if extension is missing
+		$target = $uri;
+		if (pathinfo($target, PATHINFO_EXTENSION) == '') {
+			$target = rtrim($target, '/') . ($target == '/' ? '/index.html' : $this->suffix);
+		}
+		$target = $this->normalizePath( $this->folder . DS . $target);
 		$log = [
 			'type'   => 'route',
 			'status' => '',
 			'reason' => '',
 			'source' => $uri,
-			'dest'   => 'static/',
+			'dest'   => $target,
 			'size'   => null,
 		];
-		$target = $this->normalizePath( $this->folder . DS . $uri . (substr($uri, -1) == '/' ? $this->suffix : ''));
-		$log['dest'] .= str_replace($this->folder . DS, '', $target);
 
 		if ($write == false) {
 			// Get status of output path
@@ -431,8 +460,7 @@ class Builder {
 					}
 					// Append trailing /index.htm if extension is missing
 					if ($this->urlbase == 'file://') {
-						$basename = basename($path);
-						if ($basename == '..' || $basename == '.' || strpos($basename, '.') === false) {
+						if (pathinfo($path, PATHINFO_EXTENSION) == '') {
 							$path = rtrim($path, '/') . ($path == '/' ? '/index.html' : $this->suffix);
 						}
 					}
