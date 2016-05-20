@@ -19,7 +19,6 @@ $ds = DIRECTORY_SEPARATOR;
 $opts = [
 	'kirby' => getcwd() . $ds . 'kirby',
 	'site' => getcwd() . $ds . 'site.php',
-	'dry-run' => false,
 	'json' => false,
 	'quiet' => false,
 	'help' => false,
@@ -38,17 +37,23 @@ $args = array_filter(array_slice($argv, 1), function($arg) use (&$opts) {
 	return true;
 });
 
+$command = array_shift($args);
+
 if ($opts['json']) $opts['quiet'] = true;
 
 // Show usage if not required arguments aren't provided
-if ($opts['help']) {
+if (is_null($command) || $opts['help']) {
 	echo <<<EOF
-usage: {$argv[0]} [--dry-run] [--quiet] [--json] [--kirby=] [--site=] [pages...]
+usage: {$argv[0]} [options...] <command> [pages...]
 
+Available commands:
+	build             Build entire site (or specific pages)
+	list              List items that would be built but don't write anything
+
+Options:
 	[pages...]        Build the specified pages instead of the entire site
 	--kirby=kirby     Directory where bootstrap.php is located
 	--site=site.php   Path to kirby site.php config, specify 'false' to disable
-	--dry-run         List items that would be built but don't write anything
 	--json            Output data and outcome for each item as JSON
 	--quiet           Suppress output
 	--help            Display this help text
@@ -105,7 +110,7 @@ if (count($args) > 0) {
 
 // Store results and track stats
 $results = [];
-if ($opts['dry-run']) {
+if ($command == 'list') {
 	$stats = [
 		'outdated' => 0,
 		'uptodate' => 0,
@@ -132,7 +137,7 @@ $builder->itemCallback = function($item) use (&$results, &$stats, &$opts) {
 
 // Build each target and combine summaries
 foreach ($targets as $target) {
-	$builder->run($target, !$opts['dry-run']);
+	$builder->run($target, $command == 'build');
 }
 
 if (!$opts['quiet']) {
