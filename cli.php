@@ -4,8 +4,8 @@
  * CLI version of plugin
  *
  * Example usage:
- * php build.php ../kirby ../site.php # build everything
- * php build.php ../kirby ../site.php home error # build 'home' and 'error' pages
+ * php site/plugins/staticbuilder/cli.php # build everything
+ * php site/plugins/staticbuilder/cli.php home error # build 'home' and 'error' pages
  */
 
 namespace Kirby\Plugin\StaticBuilder;
@@ -13,20 +13,26 @@ namespace Kirby\Plugin\StaticBuilder;
 use F;
 use Router;
 
-// Parse options (--option) and create an array with positional arguments
+$ds = DIRECTORY_SEPARATOR;
+
+// Parse options (--option[=value]) and create an array with positional arguments
 $opts = [
+	'kirby' => getcwd() . $ds . 'kirby',
+	'site' => getcwd() . $ds . 'site.php',
 	'dry-run' => false,
 	'json' => false,
 	'quiet' => false,
+	'help' => false,
 ];
 $args = array_filter(array_slice($argv, 1), function($arg) use (&$opts) {
 	if (substr($arg, 0, 2) === '--') {
-		$opt = substr($arg, 2);
+		$parts = explode('=', substr($arg, 2));
+		$opt = $parts[0];
 		if (!isset($opts[$opt])) {
 			echo "Error: unknown option '$opt'\n";
 			exit(1);
 		}
-		$opts[$opt] = true;
+		$opts[$opt] = isset($parts[1]) ? $parts[1] : true;
 		return false;
 	}
 	return true;
@@ -35,20 +41,40 @@ $args = array_filter(array_slice($argv, 1), function($arg) use (&$opts) {
 if ($opts['json']) $opts['quiet'] = true;
 
 // Show usage if not required arguments aren't provided
-if (count($args) < 2) {
+if ($opts['help']) {
 	echo <<<EOF
-usage: {$argv[0]} [--dry-run] [--quiet] [--json] kirby-root site.php [pages...]
+usage: {$argv[0]} [--dry-run] [--quiet] [--json] [--kirby=] [--site=] [pages...]
 
-* kirby-root   Directory where bootstrap.php is located
-* site.php     Path to kirby site config
-* [pages...]   Build the specified pages instead of the entire site
+	[pages...]        Build the specified pages instead of the entire site
+	--kirby=kirby     Directory where bootstrap.php is located
+	--site=site.php   Path to kirby site.php config, specify 'false' to disable
+	--dry-run         List items that would be built but don't write anything
+	--json            Output data and outcome for each item as JSON
+	--quiet           Suppress output
+	--help            Display this help text
 
 EOF;
 	exit(1);
 }
 
-list($kirbyRoot, $sitePath) = $args;
-$targets = array_slice($args, 2);
+// Ensure dependencies exist
+$bootstrapPath = "{$opts['kirby']}{$ds}bootstrap.php";
+if (!file_exists($bootstrapPath)) {
+	echo "bootstrap.php not found in '{$opts['kirby']}'.\n";
+	echo "You can override the default location using --kirby=path/to/kirby-dir\n";
+	exit(1);
+} else {
+	require_once($bootstrapPath);
+}
+if ($opts['site'] === 'false') {
+	// Don't load site.php
+} else if (!file_exists($opts['site'])) {
+	echo "site.php not found at '{$opts['site']}'.\n";
+	echo "You can override the default location using --site=path/to/site.php\n";
+	exit(1);
+} else {
+	require_once($opts['site']);
+}
 
 $log = function($msg) use ($opts) {
 	if (!$opts['quiet']) {
@@ -59,9 +85,7 @@ $log = function($msg) use ($opts) {
 $startTime = microtime(true);
 
 // Bootstrap Kirby
-$ds = DIRECTORY_SEPARATOR;
-require("{$kirbyRoot}{$ds}bootstrap.php");
-require($sitePath);
+$kirby = kirby();
 date_default_timezone_set($kirby->options['timezone']);
 $kirby->site();
 $kirby->extensions();
@@ -69,11 +93,12 @@ $kirby->plugins();
 $kirby->models();
 $kirby->router = new Router($kirby->routes());
 
+require_once('core/builder.php');
 $builder = new Builder();
 
 // Determine targets to build
-if (count($targets) > 0) {
-	$targets = array_map('page', $targets);
+if (count($args) > 0) {
+	$targets = array_map('page', $args);
 } else {
 	$targets = [site()];
 }
