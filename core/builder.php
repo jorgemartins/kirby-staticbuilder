@@ -13,7 +13,6 @@ use Response;
 use Site;
 use Str;
 use Tpl;
-use Str;
 
 /**
  * Static HTML builder class for Kirby CMS
@@ -50,8 +49,8 @@ class Builder {
 	// Storing results
 	public $summary = [];
 
-	// Optional callback to execute after an item has been built
-	public $itemCallback = null;
+	// Callbacks to execute after an item has been built
+	protected $onLogCallbacks = [];
 
 	/**
 	 * Builder constructor.
@@ -323,7 +322,7 @@ class Builder {
 			$log['status'] = 'ignore';
 			if ($this->filter == null) $log['reason'] = 'Page has no text file';
 			else $log['reason'] = 'Excluded by custom filter';
-			return $this->summary[] = $log;
+			return $this->log($log);
 		}
 		// Should never happen, but better safe than sorry
 		elseif (!$this->filterPath($file)) {
@@ -344,8 +343,7 @@ class Builder {
 			if ($this->pagefiles) {
 				$log['files'] = $page->files()->count();
 			}
-			// Get number of files
-			return $this->summary[] = $log;
+			return $this->log($log);
 		}
 
 		// Render page
@@ -366,8 +364,7 @@ class Builder {
 				$log['files'][] = str_replace($this->outputdir, 'static', $dest);
 			}
 		}
-		$this->notifyCallback($log);
-		return $this->summary[] = $log;
+		return $this->log($log);
 	}
 
 	protected function buildRoute($uri, $write=false) {
@@ -409,7 +406,7 @@ class Builder {
 			if (pathinfo($target, PATHINFO_EXTENSION) == '') {
 				$target = rtrim($target, '/') . ($target == '/' ? '/index.html' : $this->filename);
 			}
-			$target = $this->normalizePath( $this->folder . DS . $target);
+			$target = $this->normalizePath( $this->outputdir . DS . $target);
 			$log['dest'] = $target;
 
 			if ($this->filterPath($target) == false) {
@@ -452,7 +449,7 @@ class Builder {
 			}
 		}
 
-		return $this->summary[] = $log;
+		return $this->log($log);
 	}
 
 	/**
@@ -493,7 +490,7 @@ class Builder {
 		if ($this->filterPath($target) == false) {
 			$log['status'] = 'ignore';
 			$log['reason'] = 'Cannot copy asset outside of the static folder';
-			return $this->summary[] = $log;
+			return $this->log($log);
 		}
 		$log['dest'] .= str_replace($this->outputdir . DS, '', $target);
 
@@ -522,8 +519,7 @@ class Builder {
 			$log['status'] = copy($source, $target) ? 'done' : 'failed';
 		}
 
-		$this->notifyCallback($log);
-		return $this->summary[] = $log;
+		return $this->log($log);
 	}
 
 	/**
@@ -545,41 +541,6 @@ class Builder {
 		}
 	}
 
-	protected function rewriteUrls($text, $relativeTo = '') {
-		$quotedPlaceholder = preg_quote($this->urlPlaceholder, '~');
-		$relativeTo = preg_replace("~^$quotedPlaceholder/?~", '', $relativeTo);
-		return preg_replace_callback(
-			"~$quotedPlaceholder/?([^\"'{}\s]*)~",
-			function ($m) use($relativeTo) {
-				if ($this->urlbase === false || $this->urlbase == 'file://') {
-					$path = $this->relativePath($relativeTo, $m[1]);
-					// Strip first ../ when relative to root
-					if ($relativeTo === '' && strpos($path, '../') === 0) {
-						$path = substr($path, 3);
-					}
-					// Prepend with ./ to clarify the relativity
-					if (substr($path, 0, 3) != '../') {
-						$path = "./$path";
-					}
-					// Append trailing /index.htm if extension is missing
-					if ($this->urlbase == 'file://') {
-						if (pathinfo($path, PATHINFO_EXTENSION) == '') {
-							$path = rtrim($path, '/') . ($path == '/' ? '/index.html' : $this->suffix);
-						}
-					}
-					return $path;
-				} else {
-					return $this->urlbase . '/' . $m[1];
-				}
-			},
-			$text
-		);
-	}
-
-	protected function notifyCallback($item) {
-		$this->itemCallback && call($this->itemCallback, [$item]);
-	}
-
 	/**
 	 * Try to render any PHP Fatal Error in our own template
 	 * @return bool
@@ -596,6 +557,24 @@ class Builder {
 					. 'In ' . $error['file'] . ', line ' . $error['line']
 			]);
 		}
+	}
+
+	/**
+	 * Append the item to the current summary and notify any callbacks.
+	 * @param array $item Metadata for item that was built
+	 * @return array $item
+	 */
+	protected function log($item) {
+		foreach ($this->onLogCallbacks as $cb) $cb($item);
+		return $this->summary[] = $item;
+	}
+
+	/**
+	 * Register new log callback.
+	 * @param function $callback
+	 */
+	public function onLog($callback) {
+		$this->onLogCallbacks[] = $callback;
 	}
 
 	/**
@@ -646,6 +625,7 @@ class Builder {
 			error_reporting($level);
 			$this->shutdown = function () {};
 		}
+	}
 
 	/**
 	 * Render the HTML report page
