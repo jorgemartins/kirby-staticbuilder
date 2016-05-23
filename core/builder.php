@@ -89,7 +89,7 @@ class Builder {
 			$this->filter = $filter;
 		}
 
-		$this->urlbase = c::get('plugin.staticbuilder.urlbase', false);
+		$this->urlbase = c::get('plugin.staticbuilder.urlbase', '');
 		$this->routes = c::get('plugin.staticbuilder.routes', ['*']);
 		$this->excluderoutes = array_merge(
 			['staticbuilder*', '/', 'home'],
@@ -328,6 +328,11 @@ class Builder {
 			}
 			$target = $this->normalizePath( $this->folder . DS . $target);
 			$log['dest'] = $target;
+
+			if ($this->filterPath($target) == false) {
+				$log['status'] = 'ignore';
+				$log['reason'] = 'Output path for page goes outside of static directory';
+			}
 
 			if ($write == false) {
 				// Get status of output path
