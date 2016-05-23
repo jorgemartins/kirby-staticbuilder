@@ -21,7 +21,7 @@ $ds = DIRECTORY_SEPARATOR;
 $opts = [
 	'kirby' => getcwd() . $ds . 'kirby',
 	'site' => getcwd() . $ds . 'site.php',
-	'dest' => false, // Use builder default
+	'output' => false, // Use builder default
 	'base' => false, // Use builder default
 	'json' => false,
 	'quiet' => false,
@@ -46,15 +46,16 @@ $command = array_shift($args);
 // Allow false to be specified as base URL
 if ($opts['base'] == 'false') $opts['base'] = false;
 
-if (!empty($opts['dest'])) {
+if (!empty($opts['output'])) {
 	// Ensure destination ends with '/static'
-	if (basename($opts['dest']) != 'static') $opts['dest'] .= '/static';
+	if (basename($opts['output']) != 'static') $opts['output'] .= '/static';
 	// Convert destination to absolute path (via CWD)
-	if (substr($opts['dest'], 0, 1) != '/') $opts['dest'] = getcwd() . $ds . $opts['dest'];
+	if (substr($opts['output'], 0, 1) != '/') $opts['output'] = getcwd() . $ds . $opts['output'];
 }
 
 // Supress log if outputting JSON
 if ($opts['json']) $opts['quiet'] = true;
+
 
 // Show usage if not required arguments aren't provided
 if (is_null($command) || $command == 'help' || $opts['help']) {
@@ -70,9 +71,8 @@ Options:
 	[pages...]        Build the specified pages instead of the entire site
 	--kirby=kirby     Directory where bootstrap.php is located
 	--site=site.php   Path to kirby site.php config, specify 'false' to disable
-	--dest=dist       Output directory
+	--output=         Output directory
 	--base=           Base URL prefix
-	--quiet           Suppress output
 	--json            Output data and outcome for each item as JSON
 	--quiet           Suppress output
 
@@ -117,11 +117,11 @@ $kirby->models();
 $kirby->router = new Router($kirby->routes());
 
 // Override options?
-if ($opts['base']) c::set('plugin.staticbuilder.urlbase', $opts['base']);
-if ($opts['dest']) c::set('plugin.staticbuilder.folder', $opts['dest']);
+if ($opts['base']) c::set('plugin.staticbuilder.baseurl', $opts['base']);
+if ($opts['output']) c::set('plugin.staticbuilder.outputdir', $opts['output']);
 
-$log("Base URL: '{$opts['base']}'");
-$log("Build destination: {$opts['dest']}");
+$log("Base URL: '" . c::get('plugin.staticbuilder.baseurl') . "'");
+$log("Output directory: " . c::get('plugin.staticbuilder.outputdir'));
 
 require_once('core/builder.php');
 $builder = new Builder();
@@ -141,7 +141,7 @@ if ($command == 'list') {
 }
 
 // Register result callback
-$builder->itemCallback = function($item) use (&$results, &$stats, &$opts) {
+$builder->onLog(function($item) use (&$results, &$stats, &$opts) {
 	$results[] = $item;
 	if ($item['status'] === '') $item['status'] = 'n/a';
 	$stats[$item['status']] = isset($stats[$item['status']]) ? $stats[$item['status']] + 1 : 1;
@@ -152,7 +152,7 @@ $builder->itemCallback = function($item) use (&$results, &$stats, &$opts) {
 		$id = isset($item['uri']) ? $item['uri'] : $item['source'];
 		echo "[{$item['status']}] {$item['type']} - {$id} $size\n";
 	}
-};
+});
 
 // Build each target and combine summaries
 $targets = count($args) > 0 ? new Pages($args) : site();
