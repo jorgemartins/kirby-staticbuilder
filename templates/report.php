@@ -1,15 +1,17 @@
 <?php
 
-$base = kirby()->urls()->index() . '/staticbuilder';
-
 $main = [];
 $ignored = [];
+
+$base = explode('staticbuilder', thisUrl())[0] . 'staticbuilder';
+
 foreach ($summary as $item) {
 	if ($item['status'] == 'ignore') {
 		$ignored[] = $item;
 	}
 	else $main[] = $item;
 }
+
 $mainCount = count($main);
 $ignoredCount = count($ignored);
 
@@ -53,7 +55,7 @@ function makeRow($info, $baseUrl) {
 	if (is_int($size)) $cols['status'] .= '<br>'.f::niceSize($size);
 	$cols['action'] = '';
 	if ($type == 'page') {
-		$action = '<form method="post" action="' . "$baseUrl/page/$uri" .'">';
+		$action = '<form method="post" action="' . "$baseUrl/$uri" .'">';
 		$action .= '<input type="hidden" name="confirm" value="">';
 		$action .= '<button type="submit">Rebuild</button></form>';
 		$cols['action'] = $action;
@@ -83,7 +85,7 @@ function makeIgnoredRow($info) {
 <head>
 	<meta charset="UTF-8">
 	<title>Kirby StaticBuilder</title>
-	<link rel="stylesheet" href="<?php echo $base ?>/report.css">
+	<style><?php echo $styles; ?></style>
 </head>
 <body>
 
@@ -95,7 +97,10 @@ function makeIgnoredRow($info) {
 			if (isset($error) and $error != '') echo $error;
 			else {
 				echo ($confirm ? 'Built' : 'Found') . ' ' . count($summary) . ' elements';
-				if ($ignoredCount > 0) echo " (skipping $ignoredCount)";
+				if ($ignoredCount > 0) {
+					echo " (<a href=\"#results\">$mainCount included</a>,";
+					echo " <a href=\"#skipped\">$ignoredCount skipped</a>)";
+				}
 			}
 		?>
 		</p>
@@ -105,7 +110,7 @@ function makeIgnoredRow($info) {
 			<a class="header-btn" href="<?php echo $base ?>">List all pages</a>
 		</div>
 	<?php endif ?>
-	<?php if ($mode == 'site' and !$confirm): ?>
+	<?php if ($mode == 'site'): ?>
 		<form class="header-col header-col--side"
 			  method="post" action="<?php echo $base ?>">
 			<input type="hidden" name="confirm" value="1">
@@ -135,7 +140,7 @@ function makeIgnoredRow($info) {
 		<strong>Important:</strong> the script was stopped, so the next pages in the queue were NOT built.
 	</p>
 	<?php endif ?>
-	<table class="pages">
+	<table id="results" class="pages">
 		<thead>
 		<tr>
 			<th>Source</th>
@@ -152,7 +157,7 @@ function makeIgnoredRow($info) {
 	</table>
 <?php endif ?>
 <?php if ($ignoredCount > 0): ?>
-	<h2>These pages or files were skipped</h2>
+	<h2 id="skipped">These pages or files were skipped</h2>
 	<table class="pages">
 		<thead>
 		<tr>

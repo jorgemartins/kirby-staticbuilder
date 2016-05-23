@@ -12,16 +12,16 @@ use Response;
  * @return bool
  */
 function siteAction() {
+	$write = r::is('POST') and r::get('confirm');
 	$site = site();
 	$builder = new Builder();
-	$confirm = r::is('POST') and r::get('confirm');
 
-	$builder->run($site, $confirm);
+	$builder->run($site, $write);
 
 	$data = [
 		'mode'    => 'site',
 		'error'   => false,
-		'confirm' => $confirm,
+		'confirm' => $write,
 		'summary' => $builder->summary
 	];
 	return $builder->htmlReport($data);
@@ -33,30 +33,21 @@ function siteAction() {
  * @return bool
  */
 function pageAction($uri) {
+	$write = r::is('POST') and r::get('confirm');
 	$page = page($uri);
 	$builder = new Builder();
-	$confirm = r::is('POST') and r::get('confirm');
 	$data = [
 		'mode'    => 'page',
 		'error'   => false,
-		'confirm' => $confirm,
-		'folder'  => null,
+		'confirm' => $write,
 		'summary' => []
 	];
 	if (!$page) {
 		$data['error'] = "Error: Cannot find page for \"$uri\"";
 	}
 	else {
-		$builder->run($page, $confirm);
+		$builder->run($page, $write);
 		$data['summary'] = $builder->summary;
 	}
 	return $builder->htmlReport($data);
-}
-
-/**
- * Serve CSS file for report page
- */
-function cssAction() {
-	$css = file_get_contents(__DIR__ . DS . '..' . DS . 'assets' . DS . 'report.css');
-	return new Response($css, 'css');
 }
