@@ -41,11 +41,7 @@ class Builder {
 	protected $filter;
 	protected $assets;
 	protected $routes;
-	protected $ignoredRoutes = [
-		'staticbuilder*',
-		'/',
-		'home',
-	];
+	protected $excluderoutes;
 
 	// Callable for PHP Errors
 	public $shutdown;
@@ -94,16 +90,11 @@ class Builder {
 		}
 
 		$this->urlbase = c::get('plugin.staticbuilder.urlbase', false);
-		$this->routes = c::get('plugin.staticbuilder.routes', true);
-		if (!$this->routes) {
-			$this->routes = [];
-		} else {
-			$this->routes = array_merge($this->routes, array_map(
-				function($r) { return $r->pattern; },
-				$this->kirby->router->routes('GET')
-			));
-		}
-		$this->ignoredRoutes = array_merge($this->ignoredRoutes, c::get('plugin.staticbuilder.ignoredroutes', []));
+		$this->routes = c::get('plugin.staticbuilder.routes', ['*']);
+		$this->excluderoutes = array_merge(
+			['staticbuilder*', '/', 'home'],
+			c::get('plugin.staticbuilder.excluderoutes', [])
+		);
 
 		// Normalize assets config
 		$assetConf = c::get('plugin.staticbuilder.assets', static::$defaultAssets);
@@ -164,7 +155,7 @@ class Builder {
 		// Not handling routes with parameters
 		if (strpos($uri, '(') !== false) return false;
 		// Match against ignored routes
-		foreach ($this->ignoredRoutes as $ignored) {
+		foreach ($this->excluderoutes as $ignored) {
 			if (str::endsWith($ignored, '*') && str::startsWith($uri, rtrim($ignored, '*'))) return false;
 			if ($uri === $ignored) return false;
 		}
@@ -300,54 +291,79 @@ class Builder {
 		if (!is_string($uri) || !$this->shouldBuildRoute($uri)) {
 			return false;
 		}
-		// Append trailing /index.htm to destination if extension is missing
-		$target = $uri;
-		if (pathinfo($target, PATHINFO_EXTENSION) == '') {
-			$target = rtrim($target, '/') . ($target == '/' ? '/index.html' : $this->suffix);
-		}
-		$target = $this->normalizePath( $this->folder . DS . $target);
+
 		$log = [
 			'type'   => 'route',
 			'status' => '',
 			'reason' => '',
 			'source' => $uri,
-			'dest'   => $target,
+			'dest'   => $uri,
 			'size'   => null,
 		];
 
-		if ($write == false) {
-			// Get status of output path
-			if (is_file($target)) {
-				$log['status'] = 'outdated';
-				$log['size'] = filesize($target);
+		if ($uri == '*') {
+			// Replace '*' entry with all GET routes
+			foreach ($this->kirby->router->routes('GET') as $entry) {
+				$this->buildRoute($entry->pattern, $write);
+			}
+			if ($write) $log['status'] = 'generated';
+		} else if (preg_match('~^([^{}]+)(/[^/{}]*)\{([^/{}}]+)\}([^/{}]*)(.*)~', $uri, $parts)) {
+			// Expand {param} in route pattern
+			list($match, $id, $prefix, $param, $suffix, $trailing) = $parts;
+			$page = page($id);
+			if ($page) {
+				$permutations = $page->children()->visible()->pluck($param, ',', true);
+				foreach ($permutations as $perm) {
+					$this->buildRoute(join('', [$id, $prefix, $perm, $suffix, $trailing]), $write);
+				}
+				if ($write) $log['status'] = 'generated';
+			} else {
+				$log['status'] = 'missing';
 			}
 		} else {
-			$this->lastpage = $log['source'];
-
-			// Temporarily override request method to ensure correct route is found
-			$requestMethod = isset($_SERVER['REQUEST_METHOD']) ? $_SERVER['REQUEST_METHOD'] : null;
-			$_SERVER['REQUEST_METHOD'] = 'GET';
-			$this->kirby->site()->visit($uri);
-			$route = $this->kirby->router->run($uri);
-
-			if (is_null($route)) {
-				// Unmatched route
-				$log['status'] = 'missing';
-			} else {
-				// Grab route output using output buffering
-				ob_start();
-				$response = call($route->action(), $route->arguments());
-				$text = $this->rewriteUrls(ob_get_contents(), $uri);
-				ob_end_clean();
-
-				// Write page content
-				f::write($target, $text);
-				$log['status'] = 'generated';
-				$log['size'] = strlen($text);
+			// Append trailing /index.htm to destination if extension is missing
+			$target = $uri;
+			if (pathinfo($target, PATHINFO_EXTENSION) == '') {
+				$target = rtrim($target, '/') . ($target == '/' ? '/index.html' : $this->suffix);
 			}
+			$target = $this->normalizePath( $this->folder . DS . $target);
+			$log['dest'] = $target;
 
-			$_SERVER['REQUEST_METHOD'] = $requestMethod;
+			if ($write == false) {
+				// Get status of output path
+				if (is_file($target)) {
+					$log['status'] = 'outdated';
+					$log['size'] = filesize($target);
+				}
+			} else {
+				$this->lastpage = $log['source'];
+
+				// Temporarily override request method to ensure correct route is found
+				$requestMethod = isset($_SERVER['REQUEST_METHOD']) ? $_SERVER['REQUEST_METHOD'] : null;
+				$_SERVER['REQUEST_METHOD'] = 'GET';
+				$this->kirby->site()->visit($uri);
+				$route = $this->kirby->router->run($uri);
+
+				if (is_null($route)) {
+					// Unmatched route
+					$log['status'] = 'missing';
+				} else {
+					// Grab route output using output buffering
+					ob_start();
+					$response = call($route->action(), $route->arguments());
+					$text = $this->rewriteUrls(ob_get_contents(), $uri);
+					ob_end_clean();
+
+					// Write page content
+					f::write($target, $text);
+					$log['status'] = 'generated';
+					$log['size'] = strlen($text);
+				}
+
+				$_SERVER['REQUEST_METHOD'] = $requestMethod;
+			}
 		}
+
 		$this->notifyCallback($log);
 		return $this->summary[] = $log;
 	}
@@ -538,6 +554,7 @@ class Builder {
 			foreach ($this->routes as $route) {
 				$this->buildRoute($route, $write);
 			}
+
 			foreach ($this->assets as $from=>$to) {
 				$this->copyAsset($from, $to, $write);
 			}
