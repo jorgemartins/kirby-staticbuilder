@@ -10,6 +10,7 @@
 
 namespace Kirby\Plugin\StaticBuilder;
 
+use C;
 use F;
 use Router;
 use Pages;
@@ -20,6 +21,8 @@ $ds = DIRECTORY_SEPARATOR;
 $opts = [
 	'kirby' => getcwd() . $ds . 'kirby',
 	'site' => getcwd() . $ds . 'site.php',
+	'dest' => false, // Use builder default
+	'base' => false, // Use builder default
 	'json' => false,
 	'quiet' => false,
 	'help' => false,
@@ -40,6 +43,17 @@ $args = array_filter(array_slice($argv, 1), function($arg) use (&$opts) {
 
 $command = array_shift($args);
 
+// Allow false to be specified as base URL
+if ($opts['base'] == 'false') $opts['base'] = false;
+
+if (!empty($opts['dest'])) {
+	// Ensure destination ends with '/static'
+	if (basename($opts['dest']) != 'static') $opts['dest'] .= '/static';
+	// Convert destination to absolute path (via CWD)
+	if (substr($opts['dest'], 0, 1) != '/') $opts['dest'] = getcwd() . $ds . $opts['dest'];
+}
+
+// Supress log if outputting JSON
 if ($opts['json']) $opts['quiet'] = true;
 
 // Show usage if not required arguments aren't provided
@@ -56,6 +70,9 @@ Options:
 	[pages...]        Build the specified pages instead of the entire site
 	--kirby=kirby     Directory where bootstrap.php is located
 	--site=site.php   Path to kirby site.php config, specify 'false' to disable
+	--dest=dist       Output directory
+	--base=           Base URL prefix
+	--quiet           Suppress output
 	--json            Output data and outcome for each item as JSON
 	--quiet           Suppress output
 
@@ -98,6 +115,13 @@ $kirby->extensions();
 $kirby->plugins();
 $kirby->models();
 $kirby->router = new Router($kirby->routes());
+
+// Override options?
+if ($opts['base']) c::set('plugin.staticbuilder.urlbase', $opts['base']);
+if ($opts['dest']) c::set('plugin.staticbuilder.folder', $opts['dest']);
+
+$log("Base URL: '{$opts['base']}'");
+$log("Build destination: {$opts['dest']}");
 
 require_once('core/builder.php');
 $builder = new Builder();
