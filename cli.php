@@ -171,7 +171,8 @@ if ($opts['json']) {
 }
 
 $executionTime = microtime(true) - $startTime;
-$log("Finished in $executionTime s");
+$log("Finished in: $executionTime s");
+$log("Peak memory usage: ". f::niceSize(memory_get_peak_usage()));
 
 // Exit with error code if not successful
 if (isset($stats['missing'])) {
