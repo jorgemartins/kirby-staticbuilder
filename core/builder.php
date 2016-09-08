@@ -31,16 +31,20 @@ class Builder {
 	// Project root
 	protected $root;
 
+	// Language codes
+	protected $langs = [];
+
 	// Config (there is a 'plugin.staticbuilder.[key]' for each one)
-	protected $outputdir     = 'static';
-	protected $filename      = '/index.html';
-	protected $baseurl       = '/';
+	protected $outputdir  = 'static';
+	protected $baseurl    = '/';
 	protected $routes        = ['*'];
 	protected $excluderoutes = ['staticbuilder*', '/', 'home'];
-	protected $assets        = ['assets', 'content', 'thumbs'];
-	protected $uglyurls      = false;
-	protected $pagefiles     = false;
-	protected $filter        = null;
+	protected $assets     = ['assets', 'content', 'thumbs'];
+	protected $filter     = null;
+	protected $filename   = '.html';
+	protected $uglyurls   = false;
+	protected $pagefiles  = false;
+	protected $catcherror = true;
 
 	// Callable for PHP Errors
 	public $shutdown;
@@ -57,17 +61,24 @@ class Builder {
 	 * Resolve config and stuff.
 	 * @throws Exception
 	 */
-	public function __construct()
-	{
+	public function __construct() {
 		// Kirby instance with some hacks
 		$this->kirby = $this->kirbyInstance();
 
 		// Project root
-		$this->root = $this->kirby->roots()->index;
+		$this->root = $this->normalizeSlashes($this->kirby->roots()->index);
+
+		// Multilingual
+		if ($this->kirby->site()->multilang()) {
+			foreach ($this->kirby->site()->languages() as $language) {
+				$this->langs[] = $language->code();
+			}
+		}
+		else $this->langs[] = null;
 
 		// Ouptut directory
 		$dir = c::get('plugin.staticbuilder.outputdir', $this->outputdir);
-		$dir = $this->isAbsolutePath($dir) ? $dir : $this->root . DS . $dir;
+		$dir = $this->isAbsolutePath($dir) ? $dir : $this->root . '/' . $dir;
 		$folder = new Folder($this->normalizePath($dir));
 
 		if ($folder->name() !== 'static') {
@@ -81,15 +92,8 @@ class Builder {
 		}
 		$this->outputdir = $folder->root();
 
-		// File name or extension for output pages
-		if ($fn = c::get('plugin.staticbuilder.filename')) {
-			$fn = str_replace(['/', '\\'], '', $fn);
-			$this->filename = str::startsWith($fn,'.') ? $fn : '/' . $fn;
-		};
-
-		// URL root, make sure it ends with just one slash
-		$baseurl = c::get('plugin.staticbuilder.baseurl', $this->baseurl);
-		$this->baseurl = rtrim($baseurl, '/') . '/';
+		// URL root
+		$this->baseurl = c::get('plugin.staticbuilder.baseurl', $this->baseurl);
 
 		$this->routes = c::get('plugin.staticbuilder.routes', $this->routes);
 		$this->excluderoutes = array_merge(
@@ -106,16 +110,25 @@ class Builder {
 				$this->assets[array_shift($a)] = array_shift($a);
 		}
 
+		// Filter for pages to build or ignore
+		if (is_callable($filter = c::get('plugin.staticbuilder.filter'))) {
+			$this->filter = $filter;
+		}
+
+		// File name or extension for output pages
+		if ($fn = c::get('plugin.staticbuilder.filename')) {
+			$fn = str_replace(['/', '\\'], '', $fn);
+			$this->filename = str::startsWith($fn,'.') ? $fn : '/' . $fn;
+		}
+
 		// Output ugly URLs (e.g. '/my/page/index.html')?
 		$this->uglyurls = c::get('plugin.staticbuilder.uglyurls', $this->uglyurls);
 
 		// Copy page files to a folder named after the page URL?
 		$this->pagefiles = c::get('plugin.staticbuilder.pagefiles', $this->pagefiles);
 
-		// Filter for pages to build or ignore
-		if (is_callable($filter = c::get('plugin.staticbuilder.filter'))) {
-			$this->filter = $filter;
-		}
+		// Catch PHP errors while generating pages?
+		$this->catcherror = c::get('plugin.staticbuilder.catcherror', $this->catcherror);
 	}
 
 	/**
@@ -151,8 +164,8 @@ class Builder {
 	 * @param string $sep Path separator to use in output
 	 * @return string
 	 */
-	protected function normalizePath($path, $sep=DS) {
-		$path = preg_replace('/[\\/\\\]+/', $sep, $path);
+	protected function normalizePath($path, $sep='/') {
+		$path = $this->normalizeSlashes($path, $sep);
 		$out = [];
 		foreach (explode($sep, $path) as $i => $fold) {
 			if ($fold == '..' && $i > 0 && end($out) != '..') array_pop($out);
@@ -164,30 +177,14 @@ class Builder {
 	}
 
 	/**
-	 * Generate a relative path between two paths.
-	 * @param string $from
-	 * @param string $to
+	 * Normalize slashes in a string to use forward slashes only
+	 * @param string $str
+	 * @param string $sep
 	 * @return string
 	 */
-	protected function relativePath($from, $to) {
-		$fromAry = explode('/', $from);
-		$toAry = explode('/', $to);
-		while (count($fromAry) && count($toAry) && $fromAry[0] === $toAry[0]) {
-			array_shift($fromAry);
-			array_shift($toAry);
-		}
-		return str_repeat('../', count($fromAry)) . implode('/', $toAry);
-	}
-
-	protected function shouldBuildRoute($uri) {
-		// Not handling routes with parameters
-		if (strpos($uri, '(') !== false) return false;
-		// Match against ignored routes
-		foreach ($this->excluderoutes as $ignored) {
-			if (str::endsWith($ignored, '*') && str::startsWith($uri, rtrim($ignored, '*'))) return false;
-			if ($uri === $ignored) return false;
-		}
-		return true;
+	function normalizeSlashes($str, $sep='/') {
+		$result = preg_replace('/[\\/\\\]+/', $sep, $str);
+		return $result === null ? '' : $result;
 	}
 
 	/**
@@ -218,7 +215,7 @@ class Builder {
 	protected function filterPath($absolutePath) {
 		// Unresolved paths with '..' are invalid
 		if (str::contains($absolutePath, '..')) return false;
-		return str::startsWith($absolutePath, $this->outputdir . DS);
+		return str::startsWith($absolutePath, $this->outputdir . '/');
 	}
 
 	/**
@@ -257,7 +254,7 @@ class Builder {
 		if ($relative || $this->uglyurls) {
 			// Match restrictively urls starting with prefix, and which are
 			// correctly escaped (no whitespace or quotes).
-			$find = preg_quote(static::URLPREFIX) . '(\/?[^<>{}"\'\s]*)';
+			$find = preg_quote(static::URLPREFIX) . '(\/?[^\?\&<>{}"\'\s]*)';
 			$text = preg_replace_callback(
 				"!$find!",
 				function($found) use ($pageUrl, $relative) {
@@ -272,7 +269,7 @@ class Builder {
 						}
 					}
 					if ($relative) {
-						if ($this->uglyurls) $pageUrl .= $this->filename;
+						$pageUrl .= $this->filename;
 						$pageUrl = str_replace(static::URLPREFIX, '', $pageUrl);
 						$url = str_replace(static::URLPREFIX, '', $url);
 						$url = $this->relativeUrl($pageUrl, $url);
@@ -289,49 +286,94 @@ class Builder {
 	}
 
 	/**
+	 * Generate the file path that a page should be written to
+	 * @param Page $page
+	 * @param string|null $lang
+	 * @return string
+	 * @throws Exception
+	 */
+	protected function pageFilename(Page $page, $lang=null) {
+		$url  = ltrim(str_replace(static::URLPREFIX, '', $page->url($lang)));
+		$base = $this->outputdir . '/' . $url;
+		$file = $base . $this->filename;
+		// Special case: home page
+		if ($base == '' || $base == '/') {
+			$file = $base . 'index.html';
+		}
+		// Don’t add any extension if we already have one (using a short
+		// whitelist for possible use cases).
+		elseif (preg_match('/\.(js|json|css|txt|svg|xml|atom|rss)$/i', $base)) {
+			$file = $base;
+		}
+		$validPath = $this->normalizePath($file);
+		if ($this->filterPath($validPath) == false) {
+			throw new Exception('Output path for page goes outside of static directory: ' . $file);
+		}
+		return $validPath;
+	}
+
+	/**
 	 * Write the HTML for a page and copy its files
 	 * @param Page $page
 	 * @param bool $write Should we write files or just report info (dry-run).
-	 * @return array
 	 */
 	protected function buildPage(Page $page, $write=false) {
+		// Check if we will build this page and report why not
+		if (!$this->filterPage($page)) {
+			$log = [
+				'type'   => 'page',
+				'source' => 'content/'.$page->diruri(),
+				'status' => 'ignore',
+				'reason' => $this->filter == null ? 'Page has no text file' : 'Excluded by custom filter',
+				'dest'   => null,
+				'size'   => null
+			];
+			$this->summary[] = $log;
+			return;
+		}
+
+		// Build the HTML for each language version of the page
+		foreach ($this->langs as $lang) {
+			$this->buildPageVersion(clone $page, $lang, $write);
+		}
+	}
+
+	/**
+	 * Write the HTML for a page’s language version
+	 * @param Page $page
+	 * @param string $lang Page language code
+	 * @param bool $write Should we write files or just report info (dry-run).
+	 * @return array
+	 */
+	protected function buildPageVersion(Page $page, $lang=null, $write=false) {
+		// Clear the cached data (especially the $page->content object)
+		// or we will end up with the first language's content for all pages
+		$page->reset();
+
+		// Update the current language and active page
+		if ($lang) $page->site->language = $page->site->language($lang);
+		$page->site()->visit($page->uri(), $lang);
+
+		// Let's get some metadata
+		$source = $this->normalizePath($page->textfile(null, $lang));
+		$source = ltrim(str_replace($this->root, '', $source), '/');
+		$file   = $this->pageFilename($page, $lang);
+		// Store reference to this page in case there's a fatal error
+		$this->lastpage = $source;
+
 		$log = [
 			'type'   => 'page',
 			'status' => '',
-			'reason' => '',
-			'source' => 'content/' . $page->diruri(),
-			'dest'   => null,
+			'source' => $source,
+			'dest'   => str_replace($this->outputdir, 'static', $file),
 			'size'   => null,
-			// Specific to pages
 			'title'  => $page->title()->value,
 			'uri'    => $page->uri(),
 			'files'  => []
 		];
 
-		// Figure where we might write the page and its files
-		$base = ltrim(str_replace(static::URLPREFIX, '', $page->url()), '/');
-		$file = $page->isHomePage() ? 'index.html' : $base . $this->filename;
-		$file = $this->normalizePath($this->outputdir . DS . $file);
-		$log['dest'] = str_replace($this->outputdir, 'static', $file);
-
-		// Store reference to this page in case there's a fatal error
-		$this->lastpage = $log['source'];
-
-		// Check if we will build this page and report why not
-		if (!$this->filterPage($page)) {
-			$log['status'] = 'ignore';
-			if ($this->filter == null) $log['reason'] = 'Page has no text file';
-			else $log['reason'] = 'Excluded by custom filter';
-			return $this->log($log);
-		}
-		// Should never happen, but better safe than sorry
-		elseif (!$this->filterPath($file)) {
-			$log['status'] = 'ignore';
-			$log['reason'] = 'Output path for page goes outside of static directory';
-		}
-
+		// If not writing, let's report on the existing target page
 		if ($write == false) {
-			// Get status of output path
 			if (is_file($file)) {
 				$outdated = filemtime($file) < $page->modified();
 				$log['status'] = $outdated ? 'outdated' : 'uptodate';
@@ -347,21 +389,22 @@ class Builder {
 		}
 
 		// Render page
-		$this->kirby->site()->visit($page->uri());
 		$text = $this->kirby->render($page, [], false);
-		$text = $this->rewriteUrls($text, $page->url());
-
+		$text = $this->rewriteUrls($text, $page->url($lang));
 		f::write($file, $text);
 		$log['size'] = strlen($text);
 		$log['status'] = 'generated';
+		header_remove();
 
-		// Copy page files in a folder
+		// Option: Copy page files in a folder
 		if ($this->pagefiles) {
-			$dir = $this->normalizePath($this->outputdir . DS . $base);
+			$dir = str_replace(static::URLPREFIX, '', $page->url($lang));
+			$dir = $this->normalizeSlashes($this->outputdir . '/' . $dir);
 			foreach ($page->files() as $f) {
-				$dest = $dir . DS . $f->filename();
-				$f->copy($dest);
-				$log['files'][] = str_replace($this->outputdir, 'static', $dest);
+				$dest = $dir . '/' . $f->filename();
+				if ($f->copy($dest)) {
+					$log['files'][] = str_replace($this->outputdir, 'static', $dest);
+				}
 			}
 		}
 		return $this->log($log);
@@ -482,21 +525,21 @@ class Builder {
 		if ($this->isAbsolutePath($from)) {
 			$source = $from;
 		} else {
-			$source = $this->normalizePath($this->root . DS . $from);
+			$source = $this->normalizePath($this->root . '/' . $from);
 		}
 
 		// But target is always relative to static dir
-		$target = $this->normalizePath($this->outputdir . DS . $to);
+		$target = $this->normalizePath($this->outputdir . '/' . $to);
 		if ($this->filterPath($target) == false) {
 			$log['status'] = 'ignore';
 			$log['reason'] = 'Cannot copy asset outside of the static folder';
 			return $this->log($log);
 		}
-		$log['dest'] .= str_replace($this->outputdir . DS, '', $target);
+		$log['dest'] .= str_replace($this->outputdir . '/', '', $target);
 
 		// Get type of asset
 		if (is_dir($source)) {
-			$log['type'] = 'folder';
+			$log['type'] = 'dir';
 		}
 		elseif (is_file($source)) {
 			$log['type'] = 'file';
@@ -507,7 +550,7 @@ class Builder {
 		}
 
 		// Copy a folder
-		if ($write && $log['type'] == 'folder') {
+		if ($write && $log['type'] == 'dir') {
 			$source = new Folder($source);
 			$existing = new Folder($target);
 			if ($existing->exists()) $existing->remove();
@@ -547,15 +590,23 @@ class Builder {
 	 */
 	protected function showFatalError() {
 		$error = error_get_last();
-		// Check if last error is of type FATAL
-		if (isset($error['type']) && $error['type'] == E_ERROR) {
-			echo $this->htmlReport([
-				'error' => 'Error while building pages',
-				'summary' => $this->summary,
-				'lastPage' => $this->lastpage,
-				'errorDetails' => $error['message'] . "<br>\n"
-					. 'In ' . $error['file'] . ', line ' . $error['line']
-			]);
+		switch ($error['type']) {
+			case E_ERROR:
+			case E_CORE_ERROR:
+			case E_COMPILE_ERROR:
+			case E_USER_ERROR:
+			case E_RECOVERABLE_ERROR:
+			case E_CORE_WARNING:
+			case E_COMPILE_WARNING:
+			case E_PARSE:
+				ob_clean();
+				echo $this->htmlReport([
+					'error' => 'Error while building pages',
+					'summary' => $this->summary,
+					'lastPage' => $this->lastpage,
+					'errorDetails' => $error['message'] . "<br>\n"
+						. 'In ' . $error['file'] . ', line ' . $error['line']
+				]);
 		}
 	}
 
@@ -585,14 +636,14 @@ class Builder {
 	 */
 	public function run($content, $write=false) {
 		$this->summary = [];
+		$this->kirby->cache()->flush();
 
 		if ($write) {
 			// Kill PHP Error reporting when building pages, to "catch" PHP errors
 			// from the pages or their controllers (and plugins etc.). We're going
 			// to try to hande it ourselves
 			$level = error_reporting();
-			$catchErrors = c::get('plugin.staticbuilder.catcherrors', false);
-			if ($catchErrors) {
+			if ($this->catcherror) {
 				$this->shutdown = function () {
 					$this->showFatalError();
 				};
@@ -601,15 +652,18 @@ class Builder {
 			}
 		}
 
+		// Empty folder on full site build
 		if ($write && $content instanceof Site) {
 			$folder = new Folder($this->outputdir);
 			$folder->flush();
 		}
 
+		// Build each page (possibly several times for multilingual sites)
 		foreach($this->getPages($content) as $page) {
 			$this->buildPage($page, $write);
 		}
 
+		// Copy assets after building pages (so that e.g. thumbs are ready)
 		if ($content instanceof Site) {
 			foreach ($this->routes as $route) {
 				$this->buildRoute($route, $write);
@@ -621,7 +675,7 @@ class Builder {
 		}
 
 		// Restore error reporting if building pages worked
-		if ($write && $catchErrors) {
+		if ($write && $this->catcherror) {
 			error_reporting($level);
 			$this->shutdown = function () {};
 		}
@@ -637,9 +691,11 @@ class Builder {
 		// Forcefully remove headers that might have been set by some
 		// templates, controllers or plugins when rendering pages.
 		header_remove();
-		$css = __DIR__ . DS . '..' . DS . 'assets' . DS . 'report.css';
-		$tpl = __DIR__ . DS . '..' . DS . 'templates' . DS . 'report.php';
+		$css = PLUGIN_ROOT . '/assets/report.css';
+		$js  = PLUGIN_ROOT . '/assets/report.js';
+		$tpl = PLUGIN_ROOT . '/templates/report.php';
 		$data['styles'] = file_get_contents($css);
+		$data['script'] = file_get_contents($js);
 		$body = tpl::load($tpl, $data);
 		return new Response($body, 'html', $data['error'] ? 500 : 200);
 	}

@@ -1,28 +1,40 @@
 <?php
 
-$main = [];
-$ignored = [];
-
 $base = explode('staticbuilder', thisUrl())[0] . 'staticbuilder';
 
+// Sort data
+$pages  = [ 'main' => [], 'ignore' => []];
+$assets = [ 'main' => [], 'ignore' => []];
 foreach ($summary as $item) {
-	if ($item['status'] == 'ignore') {
-		$ignored[] = $item;
+	$group = $item['status'] == 'ignore' ? 'ignore' : 'main';
+	if ($item['type'] == 'page') {
+		$pages[$group][] = $item;
+	} else {
+		$assets[$group][] = $item;
 	}
-	else $main[] = $item;
 }
 
-$mainCount = count($main);
-$ignoredCount = count($ignored);
-
+// Count all the things
+$activeCount = count($pages['main']) + count($assets['main']);
+$ignoredCount = count($summary) - $activeCount;
+$pagesCount = count($pages['main']) + count($pages['ignore']);
+$assetsCount = count($assets['main']) + count($assets['ignore']);
 
 function statusText($status) {
-	if ($status == 'uptodate') return 'Up to date';
-	elseif ($status == 'outdated') return 'Outdated version';
-	elseif ($status == 'missing') return 'Not generated';
-	elseif ($status == 'generated') return 'Done';
-	elseif ($status == 'done') return 'Done';
-	return $status;
+	if ($status == '') return '-';
+	$plain = [
+		'uptodate'  => 'Up to date',
+		'outdated'  => 'Outdated version',
+		'missing'   => 'Not generated',
+		'generated' => 'Done',
+		'done'      => 'Done',
+		'ignore'    => 'Skipped'
+	];
+	if (array_key_exists($status, $plain)) {
+		return $plain[$status];
+	} else {
+		return $status;
+	}
 }
 
 function showFiles($files) {
@@ -41,37 +53,51 @@ function showFiles($files) {
 	return $text;
 }
 
-function makeRow($info, $baseUrl) {
-	extract($info);
-	if (!isset($files)) $files = '';
-	$cols = [];
-	$sourceKey = 'source type-' . $type;
-	$sourceHtml = "<code>$source</code>";
-	if ($type == 'page' and isset($title)) $sourceHtml = $title . '<br>' . $sourceHtml;
-	if ($type != 'page') $sourceHtml = "[$type]<br>$sourceHtml";
-	$cols[$sourceKey] = $sourceHtml;
-	$cols['dest'] = "<code>$dest</code>" . showFiles($files);
-	$cols['status'] = statusText($status);
-	if (is_int($size)) $cols['status'] .= '<br>'.f::niceSize($size);
-	$cols['action'] = '';
-	if ($type == 'page') {
-		$action = '<form method="post" action="' . "$baseUrl/$uri" .'">';
-		$action .= '<input type="hidden" name="confirm" value="">';
-		$action .= '<button type="submit">Rebuild</button></form>';
-		$cols['action'] = $action;
-	}
-	$html = '';
-	foreach ($cols as $key=>$content) {
-		$html .= "<td class=\"$key\">$content</td>\n";
-	}
-	return "<tr class=\"$type $status\">\n$html</tr>\n";
-}
+/**
+ * Templating function to render a log entry as a table row
+ * @param array $info
+ * @param string $base
+ * @return string
+ */
+function makeRow($info, $base) {
+	$cols   = [];
+	$type   = a::get($info, 'type', '');
+	$source = a::get($info, 'source', '');
+	$dest   = a::get($info, 'dest', '');
+	$status = a::get($info, 'status', '');
+	$reason = a::get($info, 'reason', '');
+	$title  = a::get($info, 'title', '');
+	$uri    = a::get($info, 'uri', '');
+	$size   = a::get($info, 'size', '');
+	$files  = a::get($info, 'files', '');
 
-function makeIgnoredRow($info) {
-	extract($info);
-	$cols = [];
-	$cols['source type-' . $type] = "[$type] <code>$source</code>";
-	$cols['reason'] = $info['reason'];
+	// Source column
+	$sKey = 'source type-' . $type;
+	if ($type == 'page' && $status != 'ignore') {
+		$cols[$sKey] = "<a href=\"$base/$uri\">" .
+			($title ? "<span>$title</span><br>" : '') .
+			"<code>$source</code></a>";
+	}
+	elseif ($type == 'page') {
+		$cols[$sKey] = "<code>$source</code>";
+	}
+	else {
+		$cols[$sKey] = "<code>[$type] $source</code>";
+	}
+
+	// Destination column
+	if ($status == 'ignore') {
+		$cols['dest'] = "<em>$reason</em>";
+	}
+	else {
+		$cols['dest'] = "<code>$dest</code>" . showFiles($files);
+	}
+
+	// Status column
+	$cols['status'] = statusText($status);
+	if (is_int($size)) $cols['status'] .= '<br><code>'.f::niceSize($size).'</code>';
+
+	// Make the HTML
 	$html = '';
 	foreach ($cols as $key=>$content) {
 		$html .= "<td class=\"$key\">$content</td>\n";
@@ -96,83 +122,99 @@ function makeIgnoredRow($info) {
 		<?php
 			if (isset($error) and $error != '') echo $error;
 			else {
-				echo ($confirm ? 'Built' : 'Found') . ' ' . count($summary) . ' elements';
-				if ($ignoredCount > 0) {
-					echo " (<a href=\"#results\">$mainCount included</a>,";
-					echo " <a href=\"#skipped\">$ignoredCount skipped</a>)";
-				}
+				echo ($confirm ? 'Built' : 'Found') . " $activeCount elements";
+				if ($ignoredCount > 0) echo " ($ignoredCount skipped)";
 			}
 		?>
 		</p>
 	</div>
-	<?php if ($mode == 'page'): ?>
-		<div class="header-col header-col--side">
-			<a class="header-btn" href="<?php echo $base ?>">List all pages</a>
-		</div>
-	<?php endif ?>
-	<?php if ($mode == 'site'): ?>
-		<form class="header-col header-col--side"
-			  method="post" action="<?php echo $base ?>">
+	<div class="header-col header-col--side">
+		<?php if ($mode == 'page'): ?>
+			<a class="header-btn" href="<?php echo $base ?>">show all pages</a>
+		<?php endif; ?>
+		<form method="post" action="">
 			<input type="hidden" name="confirm" value="1">
-			<button class="header-btn" type="submit">Rebuild everything</button>
+			<button class="header-btn" type="submit">
+				build <?= $mode == 'page' ? 'this page' : 'everything' ?>
+			</button>
 		</form>
-	<?php endif ?>
+	</div>
 </header>
 
 <main>
 <?php if (isset($errorDetails)): ?>
 	<div class="error-msg">
-		<?php if (isset($lastPage)): ?>
-			<h2>
-				Failed to build page:
-				<?php echo $lastPage ? "<code>$lastPage</code>" : 'unknown'; ?>
-			</h2>
-		<?php endif ?>
+		<h2>
+			Failed to build page
+			<?php if (isset($lastPage)) echo '<code>'.$lastPage.'</code>'; ?>
+		</h2>
 		<blockquote>
 			<?php echo $errorDetails ?>
 		</blockquote>
+		<h2>Build status</h2>
+		<ul>
+			<li><?php echo $pagesCount ?> page(s) were built without errors.</li>
+			<li>Next pages in the queue were <em>not</em> built, and assets not copied over.</li>
+		</ul>
+		<?php if (strpos($errorDetails, 'execution time') !== false): ?>
+		<h2>What can I do?</h2>
+		<p>
+			It looks like the build process timed out. Are you building many pages (hundreds perhaps?)
+			or building many thumb images?
+		</p>
+		<p>
+			In many situations, <strong>restarting the build once</strong> or even twice fixes the issue. You could try that,
+			and check if you’re making progress (more pages getting built). Note that you can also build pages
+			individually (going to <code>/staticbuilder/page-uri</code>).
+		</p>
+		<?php endif; ?>
 	</div>
-<?php endif ?>
-<?php if ($mainCount > 0): ?>
-	<?php if (isset($errorDetails)): ?>
-	<p>
-		The following pages and files were built without errors.<br>
-		<strong>Important:</strong> the script was stopped, so the next pages in the queue were NOT built.
-	</p>
-	<?php endif ?>
-	<table id="results" class="pages">
+<?php endif; ?>
+<?php if ($assetsCount > 0): ?>
+	<h2 class="section-header">
+		<span>Assets</span>
+	</h2>
+	<table class="results results-assets">
 		<thead>
 		<tr>
-			<th>Source</th>
-			<th><?php echo $confirm ? 'Output' : 'Target'; ?></th>
+			<th>Directory or file</th>
+			<th><?php echo $confirm ? 'Copied to' : 'Copy target'; ?></th>
 			<th class="short">Status</th>
-			<th class="shorter">Action</th>
 		</tr>
 		</thead>
 		<tbody>
-		<?php foreach($main as $item) {
+		<?php foreach(array_merge($assets['main'], $assets['ignore']) as $item) {
 			echo makeRow($item, $base);
 		} ?>
 		</tbody>
 	</table>
-<?php endif ?>
-<?php if ($ignoredCount > 0): ?>
-	<h2 id="skipped">These pages or files were skipped</h2>
-	<table class="pages">
+<?php endif; ?>
+<?php if ($pagesCount > 0): ?>
+	<?php if ($mode != 'page'): ?>
+		<h2 class="section-header">
+			<span>Pages</span>
+		</h2>
+	<?php endif; ?>
+	<table class="results results-pages">
 		<thead>
 		<tr>
-			<th>Source</th>
-			<th>Skipped because</th>
+			<th>Page source</th>
+			<th><?php echo $confirm ? 'Output' : 'Output target'; ?></th>
+			<th class="short">Status</th>
 		</tr>
 		</thead>
 		<tbody>
-		<?php foreach($ignored as $item) {
-			echo makeIgnoredRow($item);
+		<?php foreach(array_merge($pages['main'], $pages['ignore']) as $item) {
+			echo makeRow($item, $base);
 		} ?>
 		</tbody>
 	</table>
-<?php endif ?>
+<?php endif; ?>
 </main>
+
+<script>
+<?php echo $script; ?>
+</script>
 
 </body>
 </html>
