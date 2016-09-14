@@ -40,6 +40,7 @@ class Builder {
 	protected $routes     = ['*'];
 	protected $excluderoutes = ['staticbuilder*', '/', 'home'];
 	protected $assets     = ['assets', 'content', 'thumbs'];
+	protected $copyassets = false;
 	protected $filter     = null;
 	protected $filename   = '.html';
 	protected $uglyurls   = false;
@@ -108,6 +109,8 @@ class Builder {
 				$this->assets[array_shift($a)] = array_shift($a);
 			}
 		}
+
+		$this->copyassets = c::get('plugin.staticbuilder.copyassets', $this->copyassets);
 
 		// Filter for pages to build or ignore
 		if (is_callable($filter = c::get('plugin.staticbuilder.filter'))) {
@@ -692,7 +695,7 @@ class Builder {
 		}
 
 		// Copy assets after building pages (so that e.g. thumbs are ready)
-		if ($content instanceof Site) {
+		if ($content instanceof Site || $this->copyassets) {
 			foreach ($this->routes as $route) {
 				$this->buildRoute($route, $write);
 			}

@@ -24,6 +24,7 @@ $builderOptsMap = [
 	'filename' => 'filename',
 	'files' => 'pagefiles',
 	'assets' => 'assets',
+	'copy-assets' => 'copyassets',
 ];
 
 // Option defaults
@@ -35,6 +36,7 @@ $opts = [
 	'filename' => false,
 	'files' => false,
 	'assets' => false,
+	'copy-assets' => false,
 	'json' => false,
 	'quiet' => false,
 	'help' => false,
@@ -80,6 +82,7 @@ Options:
 	--filename=.htm   Filename (suffix if extension) for built pages
 	--files           Copy page files to output directory
 	--assets=c,s,v    Comma-separated list of assets to copy to output directory
+	--copy-assets     Copy assets even when only building specific pages
 	--json            Output data and outcome for each item as JSON
 	--quiet           Suppress output
 
