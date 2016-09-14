@@ -417,7 +417,10 @@ class Builder {
 		f::write($file, $text);
 		$log['size'] = strlen($text);
 		$log['status'] = 'generated';
-		header_remove();
+
+    if (!headers_sent()) {
+      header_remove();
+    }
 
 		// Option: Copy page files in a folder
 		if ($this->pagefiles) {
