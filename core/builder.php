@@ -667,9 +667,11 @@ class Builder {
 			// to try to hande it ourselves
 			$level = error_reporting();
 			if ($this->catcherror) {
-				$this->shutdown = function () {
-					$this->showFatalError();
-				};
+				if (!isset($this->shutdown)) {
+					$this->shutdown = function () {
+						$this->showFatalError();
+					};
+				}
 				register_shutdown_function($this->shutdown);
 				error_reporting(0);
 			}
