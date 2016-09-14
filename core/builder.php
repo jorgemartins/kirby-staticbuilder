@@ -81,9 +81,6 @@ class Builder {
 		$dir = $this->isAbsolutePath($dir) ? $dir : $this->root . '/' . $dir;
 		$folder = new Folder($this->normalizePath($dir));
 
-		if ($folder->name() !== 'static') {
-			throw new Exception('StaticBuilder: outputdir MUST be "static" or end with "/static"');
-		}
 		if ($folder->exists() === false) {
 			$folder->create();
 		}
