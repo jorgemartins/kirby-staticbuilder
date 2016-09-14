@@ -90,9 +90,6 @@ EOF;
 	exit(1);
 }
 
-// Allow false to be specified as base URL
-if ($opts['base'] == 'false') $opts['base'] = false;
-
 if (!empty($opts['output'])) {
 	// Convert destination to absolute path (via CWD)
 	if (substr($opts['output'], 0, 1) != '/') $opts['output'] = getcwd() . $ds . $opts['output'];
@@ -114,7 +111,7 @@ if (!file_exists($bootstrapPath)) {
 } else {
 	require_once($bootstrapPath);
 }
-if ($opts['site'] === 'false') {
+if ($opts['site'] === false) {
 	// Don't load site.php
 } else if (!file_exists($opts['site'])) {
 	echo "site.php not found at '{$opts['site']}'.\n";
