@@ -138,11 +138,24 @@ class Builder {
 	protected function kirbyInstance() {
 		// This will retrieve the existing instance with stale settings
 		$kirby = kirby();
+
+		// Remember pre-configured index string for later replacement
+		$oldBaseRegex = '!^' . preg_quote(url::base() . url::home(), '!') . '/?!';
+
 		// We need to call configure again with the new url prefix
 		c::set('url', static::URLPREFIX);
 		$kirby->configure();
+
 		// But this one stays cached anyway, so we have to update it manually
 		$kirby->site->url = static::URLPREFIX;
+
+		// Replace pre-configured index with placeholder in overridable URLs
+		foreach (['assets', 'content', 'thumbs'] as $urlKey) {
+			if (isset($kirby->urls->$urlKey)) {
+				$kirby->urls->$urlKey = preg_replace($oldBaseRegex, static::URLPREFIX . '/', $kirby->urls->$urlKey);
+			}
+		}
+
 		return $kirby;
 	}
 
