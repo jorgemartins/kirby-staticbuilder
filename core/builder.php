@@ -37,7 +37,7 @@ class Builder {
 	// Config (there is a 'plugin.staticbuilder.[key]' for each one)
 	protected $outputdir  = 'static';
 	protected $baseurl    = '/';
-	protected $routes        = ['*'];
+	protected $routes     = ['*'];
 	protected $excluderoutes = ['staticbuilder*', '/', 'home'];
 	protected $assets     = ['assets', 'content', 'thumbs'];
 	protected $filter     = null;
@@ -105,9 +105,11 @@ class Builder {
 		$assets = c::get('plugin.staticbuilder.assets', $this->assets);
 		$this->assets = [];
 		foreach ($assets as $a) {
-			if (is_string($a)) $this->assets[$a] = $a;
-			elseif (is_array($a) && count($a) > 1)
+			if (is_string($a)) {
+				$this->assets[$a] = $a;
+			} elseif (is_array($a) && count($a) > 1) {
 				$this->assets[array_shift($a)] = array_shift($a);
+			}
 		}
 
 		// Filter for pages to build or ignore
@@ -216,6 +218,17 @@ class Builder {
 		// Unresolved paths with '..' are invalid
 		if (str::contains($absolutePath, '..')) return false;
 		return str::startsWith($absolutePath, $this->outputdir . '/');
+	}
+
+	protected function shouldBuildRoute($uri) {
+		// Not handling routes with parameters
+		if (strpos($uri, '(') !== false) return false;
+		// Match against ignored routes
+		foreach ($this->excluderoutes as $ignored) {
+			if (str::endsWith($ignored, '*') && str::startsWith($uri, rtrim($ignored, '*'))) return false;
+			if ($uri === $ignored) return false;
+		}
+		return true;
 	}
 
 	/**
