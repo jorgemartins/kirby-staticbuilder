@@ -17,16 +17,31 @@ use Pages;
 
 $ds = DIRECTORY_SEPARATOR;
 
-// Parse options (--option[=value]) and create an array with positional arguments
+// Mapping of CLI option names to Builder config keys
+$builderOptsMap = [
+	'base' => 'baseurl',
+	'output' => 'outputdir',
+	'filename' => 'filename',
+	'files' => 'pagefiles',
+	'assets' => 'assets',
+];
+
+// Option defaults
 $opts = [
 	'kirby' => getcwd() . $ds . 'kirby',
 	'site' => getcwd() . $ds . 'site.php',
-	'output' => false, // Use builder default
-	'base' => false, // Use builder default
+	'output' => false,
+	'base' => false,
+	'filename' => false,
+	'files' => false,
+	'assets' => false,
 	'json' => false,
 	'quiet' => false,
 	'help' => false,
 ];
+
+// Parse options (--option[=value]) and create an array with positional arguments
+// --option enables an option, --option=false disables it & any other value is set as-is
 $args = array_filter(array_slice($argv, 1), function($arg) use (&$opts) {
 	if (substr($arg, 0, 2) === '--') {
 		$parts = explode('=', substr($arg, 2));
@@ -35,27 +50,16 @@ $args = array_filter(array_slice($argv, 1), function($arg) use (&$opts) {
 			echo "Error: unknown option '$opt'\n";
 			exit(1);
 		}
-		$opts[$opt] = isset($parts[1]) ? $parts[1] : true;
+		$value = isset($parts[1]) ? $parts[1] : true;
+		if ($value === true && strpos($arg, '=') !== false) $value = '';
+		else if ($value === 'false') $value = false;
+		$opts[$opt] = $value;
 		return false;
 	}
 	return true;
 });
 
 $command = array_shift($args);
-
-// Allow false to be specified as base URL
-if ($opts['base'] == 'false') $opts['base'] = false;
-
-if (!empty($opts['output'])) {
-	// Ensure destination ends with '/static'
-	if (basename($opts['output']) != 'static') $opts['output'] .= '/static';
-	// Convert destination to absolute path (via CWD)
-	if (substr($opts['output'], 0, 1) != '/') $opts['output'] = getcwd() . $ds . $opts['output'];
-}
-
-// Supress log if outputting JSON
-if ($opts['json']) $opts['quiet'] = true;
-
 
 // Show usage if not required arguments aren't provided
 if (is_null($command) || $command == 'help' || $opts['help']) {
@@ -73,12 +77,30 @@ Options:
 	--site=site.php   Path to kirby site.php config, specify 'false' to disable
 	--output=         Output directory
 	--base=           Base URL prefix
+	--filename=.htm   Filename (suffix if extension) for built pages
+	--files           Copy page files to output directory
+	--assets=c,s,v    Comma-separated list of assets to copy to output directory
 	--json            Output data and outcome for each item as JSON
 	--quiet           Suppress output
 
 EOF;
 	exit(1);
 }
+
+// Allow false to be specified as base URL
+if ($opts['base'] == 'false') $opts['base'] = false;
+
+if (!empty($opts['output'])) {
+	// Convert destination to absolute path (via CWD)
+	if (substr($opts['output'], 0, 1) != '/') $opts['output'] = getcwd() . $ds . $opts['output'];
+}
+
+if (!empty($opts['assets'])) {
+	$opts['assets'] = explode(',', $opts['assets']);
+}
+
+// Supress log if outputting JSON
+if ($opts['json']) $opts['quiet'] = true;
 
 // Ensure dependencies exist
 $bootstrapPath = "{$opts['kirby']}{$ds}bootstrap.php";
@@ -117,11 +139,11 @@ $kirby->models();
 $kirby->router = new Router($kirby->routes());
 
 // Override options?
-if ($opts['base']) c::set('plugin.staticbuilder.baseurl', $opts['base']);
-if ($opts['output']) c::set('plugin.staticbuilder.outputdir', $opts['output']);
-
-$log("Base URL: '" . c::get('plugin.staticbuilder.baseurl') . "'");
-$log("Output directory: " . c::get('plugin.staticbuilder.outputdir'));
+foreach ($builderOptsMap as $optKey => $configKey) {
+	if ($opts[$optKey] !== false) {
+		c::set("plugin.staticbuilder.$configKey", $opts[$optKey]);
+	}
+}
 
 require_once('core/builder.php');
 $builder = new Builder();
@@ -147,12 +169,20 @@ $builder->onLog(function($item) use (&$results, &$stats, &$opts) {
 	$stats[$item['status']] = isset($stats[$item['status']]) ? $stats[$item['status']] + 1 : 1;
 
 	if (!$opts['quiet']) {
-		$files = isset($item['files']) ? (', ' . count($item['files']) . ' files') : null;
+		$files = $opts['files'] && isset($item['files']) ? (', ' . (is_array($item['files']) ? count($item['files']) : $item['files']) . ' files') : null;
 		$size = r(is_int($item['size']), '(' . f::niceSize($item['size']) . "$files)");
 		$id = isset($item['uri']) ? $item['uri'] : $item['source'];
 		echo "[{$item['status']}] {$item['type']} - {$id} $size\n";
 	}
 });
+
+// Error handler
+$builder->shutdown = function() use (&$builder) {
+	$error = error_get_last();
+	$page = $builder->lastpage;
+	if (!$error || $error['type'] === E_NOTICE) return;
+	echo "\n\n[error] {$error['message']}\n@ {$error['file']}:{$error['line']}\n";
+};
 
 // Build each target and combine summaries
 $targets = count($args) > 0 ? new Pages($args) : site();
