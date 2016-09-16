@@ -505,10 +505,14 @@ class Builder {
 					// Unmatched route
 					$log['status'] = 'missing';
 				} else {
-					// Grab route output using output buffering
+					// Grab route output (using output buffering if necessary)
 					ob_start();
 					$response = call($route->action(), $route->arguments());
-					$text = $this->rewriteUrls(ob_get_contents(), $uri);
+					$text = $this->kirby->component('response')->make($response);
+					if (empty($text)) {
+						$text = ob_get_contents();
+					}
+					$text = $this->rewriteUrls($text, $uri);
 					ob_end_clean();
 
 					// Write page content
