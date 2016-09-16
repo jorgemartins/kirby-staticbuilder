@@ -46,6 +46,7 @@ Limitations
 - `param()` (the Kirby toolkit function to parse `/param:value` URL path
   components) uses a function local cache and will therefore return incorrect
   values for calls in subsequent routes. The following code can be used instead:
+
 	```php
 	$params = params(); // Only call it once if possible
 	$value = a::get($params, $paramName, $fallbackValue);
