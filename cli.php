@@ -74,7 +74,7 @@ Available commands:
 	help              Display this help text
 
 Options:
-	[pages...]        Build the specified pages instead of the entire site
+	[pages...]        Space separated list of pages to build, entire site if omitted
 	--kirby=kirby     Directory where bootstrap.php is located
 	--site=site.php   Path to kirby site.php config, specify 'false' to disable
 	--output=         Output directory
