@@ -339,6 +339,22 @@ class Builder {
 	}
 
 	/**
+	 * Updates server environment variables and Kirby state to match a virtual
+	 * request to the given URI
+	 * @param string $uri URI to visit
+	 * @param string $lang Language to visit if multi-lang site
+	 * @param string $method HTTP method (GET by default)
+	 */
+	protected function visitUri($uri, $lang = null, $method = 'GET') {
+		// Update various variables read by different Kirby components
+		$_SERVER['REQUEST_METHOD'] = $method;
+		$_SERVER['REQUEST_URI'] = $uri;
+		url::$current = 'http://localhost/' . ltrim($uri, '/');
+		$this->kirby->path = implode('/', url::fragments($uri));
+		$this->kirby->site()->visit($uri, $lang);
+	}
+
+	/**
 	 * Write the HTML for a page and copy its files
 	 * @param Page $page
 	 * @param bool $write Should we write files or just report info (dry-run).
@@ -378,7 +394,7 @@ class Builder {
 
 		// Update the current language and active page
 		if ($lang) $page->site->language = $page->site->language($lang);
-		$page->site()->visit($page->uri(), $lang);
+		$this->visitUri($uri, $lang);
 
 		// Let's get some metadata
 		$source = $this->normalizePath($page->textfile(null, $lang));
@@ -444,6 +460,8 @@ class Builder {
 			return false;
 		}
 
+		$this->lastpage = $uri;
+
 		$log = [
 			'type'   => 'route',
 			'status' => '',
@@ -478,15 +496,13 @@ class Builder {
 			if (pathinfo($target, PATHINFO_EXTENSION) == '') {
 				$target = rtrim($target, '/') . ($target == '/' ? '/index.html' : $this->filename);
 			}
-			$target = $this->normalizePath( $this->outputdir . DS . $target);
+			$target = $this->normalizePath($this->outputdir . DS . $target);
 			$log['dest'] = $target;
 
 			if ($this->filterPath($target) == false) {
 				$log['status'] = 'ignore';
 				$log['reason'] = 'Output path for page goes outside of static directory';
-			}
-
-			if ($write == false) {
+			} else if ($write == false) {
 				// Get status of output path
 				if (is_file($target)) {
 					$log['status'] = 'outdated';
@@ -494,12 +510,8 @@ class Builder {
 				}
 			} else {
 				$this->lastpage = $log['source'];
-
-				// Temporarily override request method to ensure correct route is found
-				$requestMethod = isset($_SERVER['REQUEST_METHOD']) ? $_SERVER['REQUEST_METHOD'] : null;
-				$_SERVER['REQUEST_METHOD'] = 'GET';
-				$this->kirby->site()->visit($uri);
-				$route = $this->kirby->router->run($uri);
+				$this->visitUri($uri);
+				$route = $this->kirby->router->run($this->kirby->path);
 
 				if (is_null($route)) {
 					// Unmatched route
