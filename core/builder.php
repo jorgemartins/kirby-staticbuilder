@@ -410,7 +410,7 @@ class Builder {
 			'dest'   => str_replace($this->outputdir, 'static', $file),
 			'size'   => null,
 			'title'  => $page->title()->value,
-			'uri'    => $page->uri(),
+			'uri'    => $page->isHomePage() ? '' : $page->uri(),
 			'files'  => []
 		];
 
@@ -498,6 +498,7 @@ class Builder {
 			}
 			$target = $this->normalizePath($this->outputdir . DS . $target);
 			$log['dest'] = $target;
+			$log['uri'] = $uri;
 
 			if ($this->filterPath($target) == false) {
 				$log['status'] = 'ignore';
@@ -563,6 +564,7 @@ class Builder {
 			// might help understand why a file was ignored
 			'source' => $from,
 			'dest'   => 'static/',
+			'uri'    => $from,
 			'size'   => null
 		];
 
