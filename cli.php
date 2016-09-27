@@ -83,7 +83,7 @@ Options:
 	--files           Copy page files to output directory
 	--assets=c,s,v    Comma-separated list of assets to copy to output directory
 	--copy-assets     Copy assets even when only building specific pages
-	--json            Output data and outcome for each item as JSON
+	--json[=x.json]   Output data and outcome for each item as JSON, to stdout or file
 	--quiet           Suppress output
 
 EOF;
@@ -100,7 +100,7 @@ if (!empty($opts['assets'])) {
 }
 
 // Supress log if outputting JSON
-if ($opts['json']) $opts['quiet'] = true;
+if ($opts['json'] === true) $opts['quiet'] = true;
 
 // Ensure dependencies exist
 $bootstrapPath = "{$opts['kirby']}{$ds}bootstrap.php";
@@ -197,7 +197,13 @@ if (!$opts['quiet']) {
 }
 
 if ($opts['json']) {
-	echo json_encode($results, JSON_UNESCAPED_SLASHES|JSON_PRETTY_PRINT);
+	$report = json_encode($results, JSON_UNESCAPED_SLASHES|JSON_PRETTY_PRINT);
+	if (is_string($opts['json'])) {
+		file_put_contents($opts['json'], $report);
+		$log("Saved JSON report to '{$opts['json']}'.");
+	} else {
+		echo $report;
+	}
 }
 
 $executionTime = microtime(true) - $startTime;
