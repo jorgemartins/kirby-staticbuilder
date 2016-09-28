@@ -350,7 +350,7 @@ class Builder {
 		$_SERVER['REQUEST_METHOD'] = $method;
 		$_SERVER['REQUEST_URI'] = $uri;
 		url::$current = 'http://localhost/' . ltrim($uri, '/');
-		$this->kirby->path = implode('/', url::fragments($uri));
+		$this->kirby->path = implode('/', (array)url::fragments($uri));
 		$this->kirby->site()->visit($uri, $lang);
 	}
 
