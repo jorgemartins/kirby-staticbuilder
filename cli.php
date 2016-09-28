@@ -50,7 +50,7 @@ $args = array_filter(array_slice($argv, 1), function($arg) use (&$opts) {
 		$opt = $parts[0];
 		if (!isset($opts[$opt])) {
 			echo "Error: unknown option '$opt'\n";
-			exit(1);
+			exit(2);
 		}
 		$value = isset($parts[1]) ? $parts[1] : true;
 		if ($value === true && strpos($arg, '=') !== false) $value = '';
@@ -107,7 +107,7 @@ $bootstrapPath = "{$opts['kirby']}{$ds}bootstrap.php";
 if (!file_exists($bootstrapPath)) {
 	echo "bootstrap.php not found in '{$opts['kirby']}'.\n";
 	echo "You can override the default location using --kirby=path/to/kirby-dir\n";
-	exit(1);
+	exit(3);
 } else {
 	require_once($bootstrapPath);
 }
@@ -116,7 +116,7 @@ if ($opts['site'] === false) {
 } else if (!file_exists($opts['site'])) {
 	echo "site.php not found at '{$opts['site']}'.\n";
 	echo "You can override the default location using --site=path/to/site.php\n";
-	exit(1);
+	exit(4);
 } else {
 	require_once($opts['site']);
 }
@@ -196,6 +196,10 @@ if (!$opts['quiet']) {
 	$log('Results: ' . join(', ', $line));
 }
 
+$executionTime = microtime(true) - $startTime;
+$log("Finished in: $executionTime s");
+$log("Peak memory usage: ". f::niceSize(memory_get_peak_usage()));
+
 if ($opts['json']) {
 	$report = json_encode($results, JSON_UNESCAPED_SLASHES|JSON_PRETTY_PRINT);
 	if (is_string($opts['json'])) {
@@ -206,11 +210,7 @@ if ($opts['json']) {
 	}
 }
 
-$executionTime = microtime(true) - $startTime;
-$log("Finished in: $executionTime s");
-$log("Peak memory usage: ". f::niceSize(memory_get_peak_usage()));
-
 // Exit with error code if not successful
 if (isset($stats['missing'])) {
-	exit(2);
+	exit(8);
 }
