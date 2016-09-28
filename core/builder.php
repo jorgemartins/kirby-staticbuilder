@@ -394,7 +394,7 @@ class Builder {
 
 		// Update the current language and active page
 		if ($lang) $page->site->language = $page->site->language($lang);
-		$this->visitUri($uri, $lang);
+		$this->visitUri($page->isHomePage() ? '/' : $page->uri(), $lang);
 
 		// Let's get some metadata
 		$source = $this->normalizePath($page->textfile(null, $lang));

@@ -181,7 +181,7 @@ $builder->shutdown = function() use (&$builder) {
 	$error = error_get_last();
 	$page = $builder->lastpage;
 	if (!$error || $error['type'] === E_NOTICE) return;
-	echo "\n\n[error] {$error['message']}\n@ {$error['file']}:{$error['line']}\n";
+	echo "\n\n[error] while generating $page\n{$error['message']}\n@ {$error['file']}:{$error['line']}\n";
 };
 
 // Build each target and combine summaries
