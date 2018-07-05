@@ -1,0 +1,8 @@
+{
+  "name": "kirby-staticbuilder-test",
+  "type": "project",
+  "require": {
+    "php": "^5.4 || ^7.0",
+    "getkirby/kirby": "2.5.*"
+  }
+}

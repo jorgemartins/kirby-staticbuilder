@@ -1,28 +1,14 @@
 <?php
 
-// The plugin must be enabled in config to be able to run,
-// which allows enabling it only for a local dev environment.
-if (c::get('plugin.staticbuilder.enabled', false)) {
+/**
+ * Kirby StaticBuilder Plugin
+ * @file Main plugin file when installed manually or with Kirby’s CLI. Not used with Composer.
+ */
 
-	if (!class_exists('Kirby\Registry')) {
-		throw new Exception('Twig plugin requires Kirby 2.3 or higher. Current version: ' . $kirby->version());
-	}
+// Using kirby’s autoloader helper
+load([
+    'kirby\\staticbuilder\\builder'    => __DIR__ . '/src/Builder.php',
+    'kirby\\staticbuilder\\controller' => __DIR__ . '/src/Controller.php'
+]);
 
-	define('PLUGIN_ROOT', __DIR__);
-
-	require_once PLUGIN_ROOT . '/core/builder.php';
-	require_once PLUGIN_ROOT . '/core/actions.php';
-
-	$kirby->set('route', [
-		'pattern' => 'staticbuilder',
-		'action'  => 'Kirby\Plugin\StaticBuilder\siteAction',
-		'method'  => 'GET|POST'
-	]);
-
-	$kirby->set('route', [
-		'pattern' => 'staticbuilder/(:all)',
-		'action'  => 'Kirby\Plugin\StaticBuilder\pageAction',
-		'method'  => 'GET|POST'
-	]);
-
-}
+Kirby\StaticBuilder\Controller::register();
