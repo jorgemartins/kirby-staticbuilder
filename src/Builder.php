@@ -1,4 +1,5 @@
 <?php
+// vim: et:ts=4:sts=4:sw=4
 
 namespace Kirby\StaticBuilder;
 
@@ -34,13 +35,17 @@ class Builder
     protected $langs = [];
 
     // Config (there is a 'staticbuilder.[key]' for each one)
-    protected $outputdir  = 'static';
-    protected $baseurl    = '/';
-    protected $assets     = ['assets', 'content', 'thumbs'];
-    protected $extension  = '/index.html';
-    protected $filter     = null;
-    protected $uglyurls   = false;
-    protected $withfiles  = false;
+    protected $outputdir     = 'static';
+    protected $baseurl       = '/';
+    protected $routes        = ['*'];
+    protected $excluderoutes = ['staticbuilder*', '/', 'home'];
+    protected $assets        = ['assets', 'content', 'thumbs'];
+    protected $extension     = '/index.html';
+    protected $filter        = null;
+    protected $uglyurls      = false;
+    protected $withfiles     = false;
+    protected $withredirects = false;
+    protected $catcherror    = true;
 
     // Callable for PHP Errors
     public $shutdown;
@@ -48,6 +53,9 @@ class Builder
 
     // Storing results
     public $summary = [];
+
+    // Callbacks to execute after an item has been built
+    protected $onLogCallbacks = [];
 
     /**
      * Builder constructor.
@@ -78,9 +86,6 @@ class Builder
         $dir = $this->isAbsolutePath($dir) ? $dir : $this->root . '/' . $dir;
         $folder = new Folder($this->normalizePath($dir));
 
-        if ($folder->name() !== 'static') {
-            throw new Exception('StaticBuilder: outputdir MUST be "static" or end with "/static"');
-        }
         if ($folder->exists() === false) {
             $folder->create();
         }
@@ -91,6 +96,12 @@ class Builder
 
         // URL root
         $this->baseurl = $kirby->get('option', 'staticbuilder.baseurl', $this->baseurl);
+
+        $this->routes = c::get('staticbuilder.routes', $this->routes);
+        $this->excluderoutes = array_merge(
+            $this->excluderoutes,
+            c::get('staticbuilder.excluderoutes', [])
+        );
 
         // Normalize assets config
         $assets = $kirby->get('option', 'staticbuilder.assets', $this->assets);
@@ -123,6 +134,12 @@ class Builder
         if (is_bool($withfiles) || is_callable($withfiles)) {
             $this->withfiles = $withfiles;
         }
+
+        // Generate redirect definition files?
+        $this->withredirects = $kirby->get('option', 'staticbuilder.withredirects', false);
+
+        // Catch PHP errors while generating pages?
+        $this->catcherror = c::get('staticbuilder.catcherror', $this->catcherror);
 
         // Save Kirby instance
         $this->kirby = $kirby;
@@ -204,6 +221,18 @@ class Builder
         // Unresolved paths with '..' are invalid
         if (Str::contains($absolutePath, '..')) return false;
         return Str::startsWith($absolutePath, $this->outputdir . '/');
+    }
+
+    protected function shouldBuildRoute($uri)
+    {
+        // Not handling routes with parameters
+        if (strpos($uri, '(') !== false) return false;
+        // Match against ignored routes
+        foreach ($this->excluderoutes as $ignored) {
+            if (str::endsWith($ignored, '*') && str::startsWith($uri, rtrim($ignored, '*'))) return false;
+            if ($uri === $ignored) return false;
+        }
+        return true;
     }
 
     /**
@@ -313,6 +342,22 @@ class Builder
     }
 
     /**
+     * Updates server environment variables and Kirby state to match a virtual
+     * request to the given URI
+     * @param string $uri URI to visit
+     * @param string $lang Language to visit if multi-lang site
+     * @param string $method HTTP method (GET by default)
+     */
+    protected function visitUri($uri, $lang = null, $method = 'GET') {
+        // Update various variables read by different Kirby components
+        $_SERVER['REQUEST_METHOD'] = $method;
+        $_SERVER['REQUEST_URI'] = $uri;
+        url::$current = 'http://localhost/' . ltrim($uri, '/');
+        $this->kirby->path = implode('/', (array)url::fragments($uri));
+        $this->kirby->site()->visit($uri, $lang);
+    }
+
+    /**
      * Write the HTML for a page and copy its files
      * @param Page $page
      * @param bool $write Should we write files or just report info (dry-run).
@@ -381,7 +426,7 @@ class Builder
             'size'   => null,
             'title'  => $page->title()->value,
             'uri'    => $page->uri(),
-            'files'  => []
+            'files'  => [],
         ];
 
         // Figure out if we have files to copy
@@ -404,7 +449,7 @@ class Builder
                 $log['status'] = 'missing';
             }
             $log['files'] = count($files);
-            return $this->summary[] = $log;
+            return $this->log($log);
         }
 
         // Render page
@@ -430,7 +475,98 @@ class Builder
             }
         }
 
-        return $this->summary[] = $log;
+        return $this->log($log);
+    }
+
+    protected function buildRoute($uri, $write=false)
+    {
+        if (!is_string($uri) || !$this->shouldBuildRoute($uri)) {
+            return false;
+        }
+
+        $this->lastpage = $uri;
+
+        $log = [
+            'type'     => 'route',
+            'status'   => '',
+            'reason'   => '',
+            'source'   => $uri,
+            'dest'     => $uri,
+            'redirect' => null,
+            'size'     => null,
+        ];
+
+        if ($uri == '*') {
+            // Replace '*' entry with all GET routes
+            foreach ($this->kirby->router->routes('GET') as $entry) {
+                $this->buildRoute($entry->pattern, $write);
+            }
+            if ($write) $log['status'] = 'generated';
+        } else if (preg_match('~^([^{}]+)(/[^/{}]*)\{([^/{}}]+)\}([^/{}]*)(.*)~', $uri, $parts)) {
+            // Expand {param} in route pattern
+            list($match, $id, $prefix, $param, $suffix, $trailing) = $parts;
+            $page = page($id);
+            if ($page) {
+                $permutations = $page->children()->visible()->pluck($param, ',', true);
+                foreach ($permutations as $perm) {
+                    $this->buildRoute(join('', [$id, $prefix, $perm, $suffix, $trailing]), $write);
+                }
+                if ($write) $log['status'] = 'generated';
+            } else {
+                $log['status'] = 'missing';
+            }
+        } else {
+            // Append trailing /index.htm to destination if extension is missing
+            $target = $uri;
+            if (pathinfo($target, PATHINFO_EXTENSION) == '') {
+                $target = rtrim($target, '/') . $this->extension;
+            }
+            $target = $this->normalizePath($this->outputdir . DS . $target);
+            $log['dest'] = $target;
+            $log['uri'] = $uri;
+
+            if ($this->filterPath($target) == false) {
+                $log['status'] = 'ignore';
+                $log['reason'] = 'Output path for page goes outside of static directory';
+            } else if ($write == false) {
+                // Get status of output path
+                if (is_file($target)) {
+                    $log['status'] = 'outdated';
+                    $log['size'] = filesize($target);
+                }
+            } else {
+                $this->lastpage = $log['source'];
+                $this->visitUri($uri);
+                $route = $this->kirby->router->run($this->kirby->path);
+
+                if (is_null($route)) {
+                    // Unmatched route
+                    $log['status'] = 'missing';
+                } else {
+                    // Grab route output (using output buffering if necessary)
+                    ob_start();
+                    $response = call($route->action(), $route->arguments());
+                    $text = $this->kirby->component('response')->make($response);
+                    if (empty($text)) {
+                        $text = ob_get_contents();
+                    }
+                    $text = $this->rewriteUrls($text, $uri);
+                    ob_end_clean();
+
+                    // Write page content
+                    f::write($target, $text);
+                    $log['status'] = 'generated';
+                    $log['size'] = strlen($text);
+
+                    if (!empty($route->redirect)) {
+                        $log['redirect'] = $route->redirect;
+                        $log['type'] = 'redirect';
+                    }
+                }
+            }
+        }
+
+        return $this->log($log);
     }
 
     /**
@@ -457,6 +593,7 @@ class Builder
             // might help understand why a file was ignored
             'source' => $from,
             'dest'   => 'static/',
+            'uri'    => $from,
             'size'   => null
         ];
 
@@ -472,7 +609,7 @@ class Builder
         if ($this->filterPath($target) == false) {
             $log['status'] = 'ignore';
             $log['reason'] = 'Cannot copy asset outside of the static folder';
-            return $this->summary[] = $log;
+            return $this->log($log);
         }
         $log['dest'] .= str_replace($this->outputdir . '/', '', $target);
 
@@ -501,7 +638,33 @@ class Builder
             $log['status'] = copy($source, $target) ? 'done' : 'failed';
         }
 
-        return $this->summary[] = $log;
+        return $this->log($log);
+    }
+
+    protected function generateRedirectsMap($format = "%s %s;", $path = null)
+    {
+        $lines = [];
+        foreach ($this->summary as $item) {
+            if (!empty($item['redirect'])) {
+                $lines[] = sprintf($format, '/' . ltrim($item['uri'], '/'), $item['redirect']);
+            }
+        }
+        $text = join($lines, "\n");
+
+        if (!empty($path)) {
+            $path = $this->normalizePath($this->outputdir . DS . $path);
+            f::write($path, $text);
+            $this->log([
+                'type'   => 'redirects-map',
+                'status' => 'generated',
+                'reason' => '',
+                'source' => $path,
+                'dest'   => $path,
+                'size'   => strlen($text),
+            ]);
+        }
+
+        return $text;
     }
 
     /**
@@ -532,24 +695,42 @@ class Builder
     {
         $error = error_get_last();
         switch ($error['type']) {
-            case E_ERROR:
-            case E_CORE_ERROR:
-            case E_COMPILE_ERROR:
-            case E_USER_ERROR:
-            case E_RECOVERABLE_ERROR:
-            case E_CORE_WARNING:
-            case E_COMPILE_WARNING:
-            case E_PARSE:
-                ob_clean();
-                echo $this->htmlReport([
-                    'mode' => 'fatal',
-                    'error' => 'Error while building pages',
-                    'summary' => $this->summary,
-                    'errorTitle' => 'Failed to build page <code>' . $this->lastpage . '</code>',
-                    'errorDetails' => $error['message'] . "<br>\n"
-                        . 'In ' . $error['file'] . ', line ' . $error['line']
-                ]);
+        case E_ERROR:
+        case E_CORE_ERROR:
+        case E_COMPILE_ERROR:
+        case E_USER_ERROR:
+        case E_RECOVERABLE_ERROR:
+        case E_CORE_WARNING:
+        case E_COMPILE_WARNING:
+        case E_PARSE:
+            ob_clean();
+            echo $this->htmlReport([
+                'mode' => 'fatal',
+                'error' => 'Error while building pages',
+                'summary' => $this->summary,
+                'errorTitle' => 'Failed to build page <code>' . $this->lastpage . '</code>',
+                'errorDetails' => $error['message'] . "<br>\n"
+                . 'In ' . $error['file'] . ', line ' . $error['line']
+            ]);
         }
+    }
+
+    /**
+     * Append the item to the current summary and notify any callbacks.
+     * @param array $item Metadata for item that was built
+     * @return array $item
+     */
+    protected function log($item) {
+        foreach ($this->onLogCallbacks as $cb) $cb($item);
+        return $this->summary[] = $item;
+    }
+
+    /**
+     * Register new log callback.
+     * @param function $callback
+     */
+    public function onLog($callback) {
+        $this->onLogCallbacks[] = $callback;
     }
 
     /**
@@ -569,11 +750,15 @@ class Builder
             // from the pages or their controllers (and plugins etc.). We're going
             // to try to hande it ourselves
             $level = error_reporting();
-            $this->shutdown = function () {
-                $this->showFatalError();
-            };
-            register_shutdown_function($this->shutdown);
-            error_reporting(0);
+            if ($this->catcherror) {
+                if (!isset($this->shutdown)) {
+                    $this->shutdown = function () {
+                        $this->showFatalError();
+                    };
+                }
+                register_shutdown_function($this->shutdown);
+                error_reporting(0);
+            }
         }
 
         // Empty folder on full site build
@@ -587,15 +772,23 @@ class Builder
             $this->buildPage($page, $write);
         }
 
+        foreach ($this->routes as $route) {
+            $this->buildRoute($route, $write);
+        }
+
+        // Generate redirect list if requested
+        if ($this->withredirects) {
+            $this->generateRedirectsMap('"%s" "%s";', '.redirects.map');
+            $this->generateRedirectsMap('Redirect 301 "%s" "%s"', '.redirects.conf');
+        }
+
         // Copy assets after building pages (so that e.g. thumbs are ready)
-        if ($content instanceof Site) {
-            foreach ($this->assets as $from=>$to) {
-                $this->copyAsset($from, $to, $write);
-            }
+        foreach ($this->assets as $from => $to) {
+            $this->copyAsset($from, $to, $write);
         }
 
         // Restore error reporting if building pages worked
-        if ($write) {
+        if ($write && $this->catcherror) {
             error_reporting($level);
             $this->shutdown = function () {};
         }
