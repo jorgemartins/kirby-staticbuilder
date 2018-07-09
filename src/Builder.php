@@ -526,8 +526,9 @@ class Builder
                 $log['status'] = 'missing';
             }
         } else {
-            // Append trailing /index.htm to destination if extension is missing
-            $target = $uri;
+            // Colons are invalid in file names on OSX
+            // Remove if https://github.com/getkirby/kirby/issues/494 is implemented
+            $target = strtr($uri, ':', '=');
             if (pathinfo($target, PATHINFO_EXTENSION) == '') {
                 $target = rtrim($target, '/') . $this->extension;
             }
