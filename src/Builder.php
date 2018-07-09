@@ -548,12 +548,25 @@ class Builder
             } else {
                 $this->lastpage = $log['source'];
                 $this->visitUri($uri);
-                $route = $this->kirby->router->run($this->kirby->path);
+                // From Kirby#launch()
+                $route = $this->kirby->router->run(trim($this->kirby->path, '/'));
 
                 if (is_null($route)) {
                     // Unmatched route
                     $log['status'] = 'missing';
                 } else {
+                    // Routes is a redirect
+                    if (!empty($route->redirect)) {
+                        $log['type'] = 'redirect';
+                        $log['status'] = 'generated';
+                        $log['redirect'] = $route->redirect;
+
+                        // Don't save file if building redirect maps
+                        if ($this->withredirects) {
+                            return $this->log($log);
+                        }
+                    }
+
                     // Grab route output (using output buffering if necessary)
                     ob_start();
                     $response = call($route->action(), $route->arguments());
@@ -568,11 +581,6 @@ class Builder
                     f::write($target, $text);
                     $log['status'] = 'generated';
                     $log['size'] = strlen($text);
-
-                    if (!empty($route->redirect)) {
-                        $log['redirect'] = $route->redirect;
-                        $log['type'] = 'redirect';
-                    }
                 }
             }
         }
@@ -657,20 +665,24 @@ class Builder
         $lines = [];
         foreach ($this->summary as $item) {
             if (!empty($item['redirect'])) {
-                $lines[] = sprintf($format, '/' . ltrim($item['uri'], '/'), $item['redirect']);
+                $lines[] = sprintf(
+                    $format,
+                    '/' . addslashes(ltrim($item['uri'], '/')),
+                    addslashes($item['redirect'])
+                );
             }
         }
         $text = join($lines, "\n");
 
         if (!empty($path)) {
-            $path = $this->normalizePath($this->outputdir . DS . $path);
-            f::write($path, $text);
+            $target = $this->normalizePath($this->outputdir . DS . $path);
+            f::write($target, $text);
             $this->log([
                 'type'   => 'redirects-map',
                 'status' => 'generated',
                 'reason' => '',
                 'source' => $path,
-                'dest'   => $path,
+                'dest'   => $target,
                 'size'   => strlen($text),
             ]);
         }
@@ -789,8 +801,8 @@ class Builder
 
         // Generate redirect list if requested
         if ($this->withredirects) {
-            $this->generateRedirectsMap('"%s" "%s";', '.redirects.map');
-            $this->generateRedirectsMap('Redirect 301 "%s" "%s"', '.redirects.conf');
+            $this->generateRedirectsMap('"%s" "%s";', '.redirects.nginx');
+            $this->generateRedirectsMap('%s %s', '.redirects.apache');
         }
 
         // Copy assets after building pages (so that e.g. thumbs are ready)
