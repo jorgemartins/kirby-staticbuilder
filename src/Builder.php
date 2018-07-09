@@ -353,8 +353,18 @@ class Builder
         $_SERVER['REQUEST_METHOD'] = $method;
         $_SERVER['REQUEST_URI'] = $uri;
         url::$current = 'http://localhost/' . ltrim($uri, '/');
+        $site = $this->kirby->site();
+
+        // Kirby doesn't unset the representation in site#visit()
+        // The default Kirby route checks this against the $page value, and
+        // forces a error page if there's a mismatch
+        $site->representation = null;
+
+        // From Kirby#constructor
         $this->kirby->path = implode('/', (array)url::fragments($uri));
-        $this->kirby->site()->visit($uri, $lang);
+        $site->visit($this->kirby->path, $lang);
+
+        return $this->kirby->page = $site->page;
     }
 
     /**
