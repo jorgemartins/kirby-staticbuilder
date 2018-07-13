@@ -38,7 +38,7 @@ class Builder
     protected $outputdir     = 'static';
     protected $baseurl       = '/';
     protected $routes        = ['*'];
-    protected $excluderoutes = ['staticbuilder*', '/', 'home'];
+    protected $excluderoutes = ['staticbuilder*'];
     protected $assets        = ['assets', 'content', 'thumbs'];
     protected $extension     = '/index.html';
     protected $filter        = null;
@@ -53,6 +53,7 @@ class Builder
 
     // Storing results
     public $summary = [];
+    public $lastmodified = null;
 
     // Callbacks to execute after an item has been built
     protected $onLogCallbacks = [];
@@ -374,6 +375,10 @@ class Builder
      */
     protected function buildPage(Page $page, $write=false)
     {
+        if (!$this->shouldBuildRoute($page->uri())) {
+            return;
+        }
+
         // Check if we will build this page and report why not.
         // Note: in 2.1 the page filtering API changed, the return value
         // can be a boolean or an array with a boolean + a string.
@@ -388,7 +393,7 @@ class Builder
         if (A::get($filterResult, 0, false) == false) {
             $log = [
                 'type'   => 'page',
-                'source' => 'content/'.$page->diruri(),
+                'source' => $page->diruri(),
                 'status' => 'ignore',
                 'reason' => A::get($filterResult, 1, 'Excluded by filter'),
                 'dest'   => null,
@@ -450,25 +455,17 @@ class Builder
 
         // If not writing, let's report on the existing target page
         if ($write == false) {
-            if (is_file($file)) {
-                $outdated = filemtime($file) < $page->modified();
-                $log['status'] = $outdated ? 'outdated' : 'uptodate';
-                $log['size'] = filesize($file);
-            }
-            else {
-                $log['status'] = 'missing';
-            }
+            $log = $this->logSetStatus($file, $page->modified(), $log);
             $log['files'] = count($files);
             return $this->log($log);
         }
 
         // Render page
+        // TODO: Render when write==false unless dry-run
         $text = $this->kirby->render($page, [], false);
         $text = $this->rewriteUrls($text, $page->url($lang));
-        F::write($file, $text);
-        $log['size'] = strlen($text);
-        $log['status'] = 'generated';
-        header_remove();
+        $log = $this->writeFile($file, $text, $log);
+        @header_remove();
 
         // Option: Copy page files in a folder
         if (count($files) > 0) {
@@ -502,6 +499,7 @@ class Builder
             'reason'   => '',
             'source'   => $uri,
             'dest'     => $uri,
+            'uri'      => $uri,
             'redirect' => null,
             'size'     => null,
         ];
@@ -511,8 +509,10 @@ class Builder
             foreach ($this->kirby->router->routes('GET') as $entry) {
                 $this->buildRoute($entry->pattern, $write);
             }
-            if ($write) $log['status'] = 'generated';
-        } else if (preg_match('~^([^{}]+)(/[^/{}]*)\{([^/{}}]+)\}([^/{}]*)(.*)~', $uri, $parts)) {
+            return;
+        }
+
+        if (preg_match('~^([^{}]+)(/[^/{}]*)\{([^/{}}]+)\}([^/{}]*)(.*)~', $uri, $parts)) {
             // Expand {param} in route pattern
             list($match, $id, $prefix, $param, $suffix, $trailing) = $parts;
             $page = page($id);
@@ -523,66 +523,65 @@ class Builder
                 }
                 if ($write) $log['status'] = 'generated';
             } else {
-                $log['status'] = 'missing';
+                $log['status'] = 'invalid';
             }
+            return $this->log($log);
+        }
+
+        // Colons are invalid in file names on OSX
+        // Remove if https://github.com/getkirby/kirby/issues/494 is implemented
+        $target = strtr($uri, ':', '=');
+        if (pathinfo($target, PATHINFO_EXTENSION) == '') {
+            $target = rtrim($target, '/') . $this->extension;
+        }
+        $target = $this->normalizePath($this->outputdir . DS . $target);
+        $log['dest'] = $target;
+        $log['uri'] = $uri;
+
+        if ($this->filterPath($target) == false) {
+            return $this->log($log, [
+                'status' => 'ignore',
+                'reason' => 'Output path for page goes outside of static directory',
+            ]);
+        }
+
+        $this->lastpage = $log['source'];
+        $this->visitUri($uri);
+        // From Kirby#launch()
+        $route = $this->kirby->router->run(trim($this->kirby->path, '/'));
+
+        if (is_null($route)) {
+            // Unmatched route
+            return $this->log($log, [
+                'status' => 'invalid',
+            ]);
+        }
+
+        if (!empty($route->redirect)) {
+            // Routes is a redirect
+            $log['type'] = 'redirect';
+            $log['redirect'] = $route->redirect;
+
+            // Don't save file if building redirect maps
+            if ($this->withredirects) {
+                return;
+            }
+        }
+
+        if ($write) {
+            // Grab route output (using output buffering if necessary)
+            ob_start();
+            $response = call($route->action(), $route->arguments());
+            $text = $this->kirby->component('response')->make($response);
+            if (empty($text)) {
+                $text = ob_get_contents();
+            }
+            $text = $this->rewriteUrls($text, $uri);
+            ob_end_clean();
+
+            $log = $this->writeFile($target, $text, $log);
         } else {
-            // Colons are invalid in file names on OSX
-            // Remove if https://github.com/getkirby/kirby/issues/494 is implemented
-            $target = strtr($uri, ':', '=');
-            if (pathinfo($target, PATHINFO_EXTENSION) == '') {
-                $target = rtrim($target, '/') . $this->extension;
-            }
-            $target = $this->normalizePath($this->outputdir . DS . $target);
-            $log['dest'] = $target;
-            $log['uri'] = $uri;
-
-            if ($this->filterPath($target) == false) {
-                $log['status'] = 'ignore';
-                $log['reason'] = 'Output path for page goes outside of static directory';
-            } else if ($write == false) {
-                // Get status of output path
-                if (is_file($target)) {
-                    $log['status'] = 'outdated';
-                    $log['size'] = filesize($target);
-                }
-            } else {
-                $this->lastpage = $log['source'];
-                $this->visitUri($uri);
-                // From Kirby#launch()
-                $route = $this->kirby->router->run(trim($this->kirby->path, '/'));
-
-                if (is_null($route)) {
-                    // Unmatched route
-                    $log['status'] = 'missing';
-                } else {
-                    // Routes is a redirect
-                    if (!empty($route->redirect)) {
-                        $log['type'] = 'redirect';
-                        $log['status'] = 'generated';
-                        $log['redirect'] = $route->redirect;
-
-                        // Don't save file if building redirect maps
-                        if ($this->withredirects) {
-                            return $this->log($log);
-                        }
-                    }
-
-                    // Grab route output (using output buffering if necessary)
-                    ob_start();
-                    $response = call($route->action(), $route->arguments());
-                    $text = $this->kirby->component('response')->make($response);
-                    if (empty($text)) {
-                        $text = ob_get_contents();
-                    }
-                    $text = $this->rewriteUrls($text, $uri);
-                    ob_end_clean();
-
-                    // Write page content
-                    f::write($target, $text);
-                    $log['status'] = 'generated';
-                    $log['size'] = strlen($text);
-                }
-            }
+            $log = $this->logSetStatus($target, $this->lastmodified, $log);
         }
 
         return $this->log($log);
@@ -604,6 +603,7 @@ class Builder
         if (!is_string($from) or !is_string($to)) {
             return false;
         }
+        $this->lastpage = $from;
         $log = [
             'type'   => 'asset',
             'status' => '',
@@ -626,20 +626,19 @@ class Builder
         // But target is always relative to static dir
         $target = $this->normalizePath($this->outputdir . '/' . $to);
         if ($this->filterPath($target) == false) {
-            $log['status'] = 'ignore';
-            $log['reason'] = 'Cannot copy asset outside of the static folder';
-            return $this->log($log);
+            return $this->log($log, [
+                'status' => 'ignore',
+                'reason' => 'Cannot copy asset outside of the static folder',
+            ]);
         }
         $log['dest'] .= str_replace($this->outputdir . '/', '', $target);
 
         // Get type of asset
         if (is_dir($source)) {
             $log['type'] = 'dir';
-        }
-        elseif (is_file($source)) {
+        } elseif (is_file($source)) {
             $log['type'] = 'file';
-        }
-        else {
+        } else {
             $log['status'] = 'ignore';
             $log['reason'] = 'Source file or folder not found';
         }
@@ -648,19 +647,19 @@ class Builder
         if ($write && $log['type'] == 'dir') {
             $source = new Folder($source);
             $existing = new Folder($target);
-            if ($existing->exists()) $existing->remove();
-            $log['status'] = $source->copy($target) ? 'done' : 'failed';
+            if ($existing->exists() ) ;
+            $log['status'] = $source->copy($target) ? 'copied' : 'failed';
         }
 
         // Copy a file
         if ($write && $log['type'] == 'file') {
-            $log['status'] = copy($source, $target) ? 'done' : 'failed';
+            $log['status'] = copy($source, $target) ? 'copied' : 'failed';
         }
 
         return $this->log($log);
     }
 
-    protected function generateRedirectsMap($format = "%s %s;", $path = null)
+    protected function generateRedirectsMap($format = "%s %s;", $path = null, $write = false)
     {
         $lines = [];
         foreach ($this->summary as $item) {
@@ -674,20 +673,50 @@ class Builder
         }
         $text = join($lines, "\n");
 
-        if (!empty($path)) {
-            $target = $this->normalizePath($this->outputdir . DS . $path);
-            f::write($target, $text);
-            $this->log([
-                'type'   => 'redirects-map',
-                'status' => 'generated',
-                'reason' => '',
-                'source' => $path,
-                'dest'   => $target,
-                'size'   => strlen($text),
-            ]);
+        if (empty($path)) {
+            return $text;
         }
 
-        return $text;
+        $target = $this->normalizePath($this->outputdir . DS . $path);
+        $log = [
+            'type'   => 'redirects-map',
+            'reason' => '',
+            'source' => $path,
+            'dest'   => $target,
+            'uri'    => $path,
+        ];
+
+        if ($write) {
+            $log = $this->writeFile($target, $text, $log);
+        } else {
+            $log = $this->logSetStatus($target, $this->lastmodified, $log);
+        }
+
+        return $this->log($log);
+    }
+
+    // TODO: Combine with logSetStatus since either one is run
+    protected function writeFile($path, $text, $log) {
+        $log['status'] = F::write($path, $text) ? 'generated' : 'failed';
+        $log['size'] = strlen($text);
+        return $log;
+    }
+
+    protected function logSetStatus($path, $lastmodified, $log) {
+        // Track last modification of the entire site
+        if ($lastmodified > $this->lastmodified) {
+            $this->lastmodified = $lastmodified;
+        }
+
+        if (is_file($path)) {
+            $outdated = filemtime($path) < $lastmodified;
+            $log['status'] = $outdated ? 'outdated' : 'uptodate';
+            $log['size'] = filesize($path);
+        } else {
+            $log['status'] = 'missing';
+        }
+
+        return $log;
     }
 
     /**
@@ -743,7 +772,10 @@ class Builder
      * @param array $item Metadata for item that was built
      * @return array $item
      */
-    protected function log($item) {
+    protected function log($item, $merge = null) {
+        if (is_array($merge)) {
+            $item = array_merge($item, $merge);
+        }
         foreach ($this->onLogCallbacks as $cb) $cb($item);
         return $this->summary[] = $item;
     }
@@ -801,8 +833,8 @@ class Builder
 
         // Generate redirect list if requested
         if ($this->withredirects) {
-            $this->generateRedirectsMap('"%s" "%s";', '.redirects.nginx');
-            $this->generateRedirectsMap('%s %s', '.redirects.apache');
+            $this->generateRedirectsMap('"%s" "%s";', '.redirects.nginx', $write);
+            $this->generateRedirectsMap('%s %s', '.redirects.apache', $write);
         }
 
         // Copy assets after building pages (so that e.g. thumbs are ready)

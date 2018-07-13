@@ -232,6 +232,6 @@ if ($opts['json']) {
 }
 
 // Exit with error code if not successful
-if (isset($stats['missing'])) {
+if (isset($stats['failed'])) {
     exit(8);
 }
