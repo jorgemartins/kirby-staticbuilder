@@ -564,7 +564,8 @@ class Builder
 
             // Don't save file if building redirect maps
             if ($this->withredirects) {
-                return;
+                $log['status'] = 'included';
+                return $this->log($log);
             }
         }
 
@@ -685,7 +686,6 @@ class Builder
             'dest'   => $target,
             'uri'    => $path,
         ];
-
         if ($write) {
             $log = $this->writeFile($target, $text, $log);
         } else {
