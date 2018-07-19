@@ -179,7 +179,7 @@ if ($command == 'list') {
 } else {
     $stats = [
         'generated' => 0,
-        'done' => 0,
+        'copied' => 0,
     ];
 }
 

@@ -772,7 +772,8 @@ class Builder
      * @param array $item Metadata for item that was built
      * @return array $item
      */
-    protected function log($item, $merge = null) {
+    protected function log($item, $merge = null)
+    {
         if (is_array($merge)) {
             $item = array_merge($item, $merge);
         }
@@ -784,7 +785,8 @@ class Builder
      * Register new log callback.
      * @param function $callback
      */
-    public function onLog($callback) {
+    public function onLog($callback)
+    {
         $this->onLogCallbacks[] = $callback;
     }
 
