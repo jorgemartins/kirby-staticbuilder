@@ -144,7 +144,7 @@ $startTime = microtime(true);
 // Bootstrap Kirby
 require_once($bootstrapPath);
 url::$home = rtrim($opts['base'], '/');
-require_once($opts['site']);
+// require_once($opts['site']); Removed as even if --site==false is declared, the script fails
 
 $kirby = kirby();
 date_default_timezone_set($kirby->options['timezone']);
